@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+client_secret.json
+reference/
+tests/
+data/
+.git/
+**/__pycache__/
+**/.cache/
+.pytest_cache/
