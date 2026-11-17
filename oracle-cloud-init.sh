@@ -40,15 +40,12 @@ EOF
 chmod 644 client_secret.json
 
 if [ ! -f .env ]; then
-    PROFILES=""
-    [ -n "$TUNNEL_TOKEN" ] && PROFILES="tunnel"
     cat > .env <<EOF
 DISCORD_TOKEN=$DISCORD_TOKEN
 ENCRYPTION_KEY=$(openssl rand -base64 32 | tr '+/' '-_')
 START_FRESH=true
 PUBLIC_URL=$PUBLIC_URL
 TUNNEL_TOKEN=$TUNNEL_TOKEN
-COMPOSE_PROFILES=$PROFILES
 EOF
     chmod 600 .env
 fi

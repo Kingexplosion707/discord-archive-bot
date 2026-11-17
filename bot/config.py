@@ -68,6 +68,7 @@ class Config:
     web_host: str
     web_port: int
     start_fresh: bool = False
+    tunnel_token: str = ""
 
     @classmethod
     def from_env(
@@ -103,6 +104,7 @@ class Config:
             skip_channel_ids=_id_set(env, "SKIP_CHANNEL_IDS"),
             scan_nsfw=_bool(env, "SCAN_NSFW_CHANNELS", False),
             start_fresh=_bool(env, "START_FRESH", False),
+            tunnel_token=_text(env, "TUNNEL_TOKEN", ""),
             sync_hour=sync_hour,
             sync_minute=sync_minute,
             timezone=zone,

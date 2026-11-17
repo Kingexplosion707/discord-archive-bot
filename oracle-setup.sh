@@ -29,7 +29,6 @@ printf 'Cloudflare tunnel token: '
 read -r TOKEN
 set_env PUBLIC_URL "$(echo "$PUBLIC" | sed 's#/*$##')"
 set_env TUNNEL_TOKEN "$TOKEN"
-set_env COMPOSE_PROFILES tunnel
 chmod 600 .env
 
 echo "Building the bot (a few minutes the first time)..."

@@ -14,25 +14,13 @@ services:
         bind:
           create_host_path: false
     ports:
-      # Only this machine can reach it directly; the tunnel below is the public way in.
+      # Only this machine can reach it directly; the Cloudflare tunnel (run by the bot) is the public way in.
       - "127.0.0.1:8080:8080"
     mem_limit: 2g
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
-
-  # Gives the Stremio addons and the lyrics page a public https address, without
-  # opening any ports. Turned on by COMPOSE_PROFILES=tunnel and TUNNEL_TOKEN in .env.
-  tunnel:
-    image: cloudflare/cloudflared:2026.10.0
-    profiles: ["tunnel"]
-    restart: unless-stopped
-    command: tunnel --no-autoupdate run
-    environment:
-      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
-    depends_on:
-      - bot
 
 volumes:
   bot-data:

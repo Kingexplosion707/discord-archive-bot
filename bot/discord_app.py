@@ -22,6 +22,7 @@ from .lyrics import LRCLIB_API, SPICY_API, LyricsFetcher, LyricsGroup, LyricsSer
 from .meta import CINEMETA, KITSU, MetaClient
 from .tracker import TitleButton, Tracker, TrackerGroup, VoteButton, WatchGroup
 from .web import build_app
+from .tunnel import Tunnel
 from .pipeline import AttachmentGone, Pipeline, TemporaryProblem
 from .store import Job, Store
 from .vault import Vault
@@ -165,6 +166,7 @@ class ArchiveClient(discord.Client):
         self._owner_user: discord.User | None = None
         self._background: set[asyncio.Task[Any]] = set()
         self._pipeline_task: asyncio.Task[None] | None = None
+        self.tunnel: Tunnel | None = None
 
     async def setup_hook(self) -> None:
         self.config = config = await fill_in_ids(self, self.config)
@@ -191,6 +193,9 @@ class ArchiveClient(discord.Client):
         await self._web_runner.setup()
         await aioweb.TCPSite(self._web_runner, config.web_host, config.web_port).start()
         log.info("Web server listening on port %s", config.web_port)
+        self.tunnel = Tunnel(config.tunnel_token)
+        if self.tunnel.enabled:
+            self._spawn(self.tunnel.run())
 
         guild = discord.Object(id=config.guild_id)
         self.tree.add_command(ArchiveGroup(self), guild=guild)
@@ -240,6 +245,8 @@ class ArchiveClient(discord.Client):
                 log.exception("Couldn't retry failed items")
 
     async def close(self) -> None:
+        if self.tunnel is not None:
+            self.tunnel.stop()
         if self.pipeline is not None:
             self.pipeline.stop()
         tasks = list(self._background)
@@ -352,4 +359,6 @@ class ArchiveClient(discord.Client):
             unreadable = json.loads(await self.store.kv_get(UNREADABLE_KEY) or "[]")
             if unreadable:
                 lines.append(f"**Channels I can't read:** {', '.join(unreadable[:20])}")
+            if self.config.public_url:
+                lines.append(f"**Web address ({self.config.public_url}):** {self.tunnel.status()}")
         return "\n".join(lines)
