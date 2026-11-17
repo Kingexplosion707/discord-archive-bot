@@ -45,3 +45,18 @@ async def _run_with_fast_retry(tunnel: Tunnel) -> None:
         await tunnel.run()
     finally:
         asyncio.sleep = real_sleep  # type: ignore[assignment]
+
+
+async def test_bot_starts_the_tunnel_from_its_settings(harness, tmp_path: Path, monkeypatch) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake = bin_dir / "cloudflared"
+    fake.write_text("#!/bin/sh\necho 'INF Registered tunnel connection connIndex=0'\nsleep 30\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+    client = await harness.start(TUNNEL_TOKEN="from-env-file")
+    await until(lambda: client.tunnel.connected, 10, "the bot's tunnel")
+    status = await client.status_text(client.config.owner_id)
+    assert "Web address" in status and "connected" in status
+    await harness.stop()
+    assert client.tunnel._process.returncode is not None  # Stopped with the bot.
