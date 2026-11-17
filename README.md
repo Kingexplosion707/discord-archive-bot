@@ -84,7 +84,7 @@ The server and owner are worked out automatically (the only server the bot is in
 
 **Fresh start:** a new server doesn't know what the old one uploaded, so `START_FRESH=true` makes its first pass record everything already in Discord without uploading it, and only new posts go to Google Photos. They go into a new album named "Discord Archive", because the new server has no way to look up the old album (the old one stays as it is). The message log starts a new "Discord Server Log.txt" with the full history.
 
-The server pulls bot updates from GitHub once a day, so you don't need to log in to it.
+The server pulls bot updates from GitHub every hour, so you don't need to log in to it.
 
 Moving from a machine that's already running the bot instead? `sh move-to-oracle.sh ORACLE_IP` carries everything over, so nothing starts fresh.
 

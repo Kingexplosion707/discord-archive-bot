@@ -52,10 +52,10 @@ fi
 
 docker compose up -d --build
 
-# Pick up bot updates once a day.
-cat > /etc/cron.daily/discord-archive-bot <<EOF
+# Pick up bot updates every hour.
+cat > /etc/cron.hourly/discord-archive-bot <<EOF
 #!/bin/sh
 cd $DIR && git pull -q --ff-only && docker compose up -d --build >/dev/null 2>&1
 EOF
-chmod 755 /etc/cron.daily/discord-archive-bot
+chmod 755 /etc/cron.hourly/discord-archive-bot
 echo "Discord archive bot is running."
