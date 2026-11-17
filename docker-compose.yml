@@ -16,7 +16,6 @@ services:
     ports:
       # Only this machine can reach it directly; the tunnel below is the public way in.
       - "127.0.0.1:8080:8080"
-    cpus: 2
     mem_limit: 2g
     security_opt:
       - no-new-privileges:true

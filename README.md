@@ -76,7 +76,7 @@ Oracle's Always Free tier gives you a small server that never turns off.
    - Discord token: Developer Portal > your app > **Bot** > **Reset Token**. While you're there, make sure all three Privileged Gateway Intents are on.
    - Google client ID and secret: Google Cloud > **Google Auth Platform** > **Clients** > your Desktop client. Copy the Client ID, then **Add secret** and copy the new secret right away.
 3. **Fill in** the quotes at the top of `oracle-cloud-init.sh`.
-4. **Create the server:** Compute > Instances > **Create instance**. Image: **Ubuntu 24.04**. Shape: **Ampere VM.Standard.A1.Flex**, 2 OCPUs and 12 GB (if it says out of capacity, use **VM.Standard.E2.1.Micro** instead). Open **Show advanced options** > **Management** > **Paste cloud-init script** and paste the whole file. Create.
+4. **Create the server:** Compute > Instances > **Create instance**. Image: **Ubuntu 24.04**. Shape: **Ampere VM.Standard.A1.Flex**, 2 OCPUs and 12 GB (if it says out of capacity, use **VM.Standard.E2.1.Micro** under AMD instead; the script adds swap so 1 GB is enough). Open **Show advanced options** > **Management** > **Paste cloud-init script** and paste the whole file. Create.
 5. **Wait about 10 minutes.** The bot comes online in Discord by itself and DMs you that it isn't signed in to Google.
 6. **Run `/archive google`** in your server, tap **Sign in**, allow access, copy the address of the page that won't load, tap **Paste address**, paste it. Done.
 

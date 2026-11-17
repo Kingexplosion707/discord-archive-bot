@@ -16,6 +16,12 @@ DIR=/opt/discord-archive-bot
 set -eux
 exec > >(tee -a /var/log/discord-bot-setup.log) 2>&1
 
+# Small free servers have 1 GB of memory; swap keeps builds and video conversion from running out.
+if [ ! -f /swapfile ]; then
+    fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+    echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
+
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
 apt-get install -y -q docker.io docker-compose-v2 git openssl
