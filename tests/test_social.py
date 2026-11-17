@@ -234,6 +234,20 @@ async def test_movie_night_episodes_and_recap(harness: Harness) -> None:
     for uid, title in ((OWNER_ID, MOVIE), (BOB_ID, MOVIE), (CAROL_ID, OTHER_MOVIE)):
         added = await fake.slash(uid, "add", general, _group="watch", title=f"movie:{title}")
         await until(lambda: len(fake.replies[added]) >= 2, 20, "watchlist add")
+        card = fake.replies[added][1]["payload"]["embeds"][0]
+        assert "added this to their watchlist" in card["author"]["name"]
+        assert card["thumbnail"]["url"].startswith("https://") and card["fields"]
+
+    # Typing a name instead of picking a suggestion still finds it, with full details.
+    typed = await fake.slash(OWNER_ID, "info", general, _group="watch", title="Interstellar")
+    await until(lambda: len(fake.replies[typed]) >= 2, 20, "typed lookup")
+    assert "Interstellar" in json.dumps(fake.replies[typed][1]["payload"]["embeds"][0])
+
+    listed = await fake.slash(BOB_ID, "watchlist", general, _group="watch")
+    await until(lambda: len(fake.replies[listed]) >= 2, 20, "the watchlist")
+    cards = fake.replies[listed][1]["payload"]["embeds"]
+    assert len(cards) == 1 and "Interstellar" in cards[0]["title"]
+    assert cards[0]["thumbnail"]["url"].startswith("https://") and "-# " in cards[0]["description"]
     night = await fake.slash(OWNER_ID, "movienight", general, _group="watch", hours=1.0)
     await until(lambda: len(fake.replies[night]) >= 2, 20, "the poll")
     poll = fake.replies[night][1]

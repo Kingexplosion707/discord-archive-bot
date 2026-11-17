@@ -4,8 +4,10 @@ Cinemeta needs no API key. Anime IDs from the Kitsu addon fall back to that addo
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import unicodedata
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -89,6 +91,31 @@ def _date(raw: Any) -> datetime | None:
         return datetime.fromisoformat(raw[:19]).replace(tzinfo=timezone.utc)
     except ValueError:
         return None
+
+
+def _norm(text: str) -> str:
+    plain = "".join(ch for ch in unicodedata.normalize("NFKD", text) if not unicodedata.combining(ch))
+    return " ".join("".join(ch.lower() if ch.isalnum() else " " for ch in plain).split())
+
+
+def name_match(query: str, name: str) -> float:
+    wanted, have = _norm(query), _norm(name)
+    if not wanted or not have:
+        return 0.0
+    if have == wanted:
+        return 3.0
+    if have.startswith(wanted) or wanted.startswith(have):
+        return 2.0
+    if wanted in have:
+        return 1.0
+    return 0.0
+
+
+def _rating(title: Title) -> float:
+    try:
+        return float(title.imdb_rating or 0)
+    except ValueError:
+        return 0.0
 
 
 def _https(url: Any) -> str | None:
@@ -186,20 +213,47 @@ class MetaClient:
         query = query.strip()
         if len(query) < 2:
             return []
-        found: list[Title] = []
-        for kind in ("movie", "series"):
-            data = await self._get_json(
-                f"{self._cinemeta}/catalog/{kind}/top/search={quote(query)}.json"
-            )
-            for raw in (data or {}).get("metas", [])[:limit]:
-                if raw.get("id"):
-                    found.append(parse_title(raw, kind))
-        # Interleave so both movies and shows appear near the top.
-        movies = [t for t in found if t.type == "movie"]
-        shows = [t for t in found if t.type == "series"]
-        mixed: list[Title] = []
-        for pair in zip(movies, shows):
-            mixed.extend(pair)
-        longer = movies if len(movies) > len(shows) else shows
-        mixed.extend(longer[min(len(movies), len(shows)):])
-        return mixed[:limit]
+        found: list[tuple[int, Title]] = []
+        kinds = ("movie", "series")
+        replies = await asyncio.gather(*(
+            self._get_json(f"{self._cinemeta}/catalog/{kind}/top/search={quote(query)}.json") for kind in kinds
+        ))
+        for kind, data in zip(kinds, replies):
+            metas = [raw for raw in (data or {}).get("metas", []) if raw.get("id")]
+            found.extend((rank, parse_title(raw, kind)) for rank, raw in enumerate(metas[:limit]))
+        # Closest names first; within the same closeness, keep each list's own order, shows and
+        # movies alternating.
+        def score(item: tuple[int, Title]) -> tuple[float, int]:
+            rank, title = item
+            return (name_match(query, title.name), -rank)
+
+        ranked = sorted(found, key=score, reverse=True)
+        seen: set[str] = set()
+        results = []
+        for _, title in ranked:
+            if title.id not in seen:
+                seen.add(title.id)
+                results.append(title)
+        return results[:limit]
+
+    async def best_match(self, query: str) -> Title | None:
+        """The title someone most likely means when they type a name: close name, well rated."""
+        found = await self.search(query, limit=12)
+        candidates = [t for t in found if name_match(query, t.name) > 0][:6] or found[:2]
+        if not candidates:
+            return None
+        full = await asyncio.gather(*(self.title(t.type, t.id) for t in candidates))
+        titles = [f or t for f, t in zip(full, candidates)]
+        def likely(title: Title) -> float:
+            # Ratings of obscure entries are unreliable; a real, known title has a poster,
+            # a summary and usually a trailer.
+            score = name_match(query, title.name) + _rating(title) / 5
+            if not title.poster:
+                score -= 1.5
+            if not title.description:
+                score -= 1.0
+            if title.trailer:
+                score += 0.3
+            return score
+
+        return max(titles, key=likely)

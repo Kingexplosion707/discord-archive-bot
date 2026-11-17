@@ -203,6 +203,25 @@ class Tracker:
             view.add_item(discord.ui.Button(label="Trailer", url=title.trailer))
         return view
 
+    def card(self, title: Title, note: str | None = None) -> discord.Embed:
+        """A compact details card for lists: poster, year, genres, rating and a short summary."""
+        icon = "🎬" if title.type == "movie" else "📺"
+        embed = discord.Embed(title=_clip(f"{icon} {title.name}", 250), url=title.url, color=COLOR)
+        facts = [f for f in (title.year, " · ".join(title.genres[:3]), title.runtime) if f]
+        if title.imdb_rating:
+            facts.append(f"⭐ {title.imdb_rating}")
+        parts = []
+        if facts:
+            parts.append("-# " + " | ".join(facts))
+        if note:
+            parts.append(note)
+        if title.description:
+            parts.append(_clip(title.description, 160))
+        embed.description = "\n".join(parts) or None
+        if title.poster:
+            embed.set_thumbnail(url=title.poster)
+        return embed
+
     async def title_embed(self, title: Title) -> discord.Embed:
         embed = discord.Embed(title=_clip(title.name, 250), url=title.url, color=COLOR)
         if title.description:
@@ -278,8 +297,7 @@ class Tracker:
         parsed = parse_title_value(value)
         if parsed:
             return await self.meta.title(*parsed)
-        results = await self.meta.search(value, limit=1)
-        return results[0] if results else None
+        return await self.meta.best_match(value)
 
     async def autocomplete(self, current: str) -> list[app_commands.Choice[str]]:
         results = await self.meta.search(current, limit=12)
@@ -720,11 +738,17 @@ class WatchGroup(app_commands.Group):
 
     @app_commands.command(name="add", description="Add something to your watchlist")
     async def add(self, interaction: discord.Interaction, title: str) -> None:
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.response.defer(thinking=True)
         found = await self._title(interaction, title)
         if found:
             added = await self.tracker.add_to_watchlist(interaction.user.id, found.type, found.id)
-            await interaction.followup.send(f"Added **{found.name}**." if added else f"**{found.name}** is already on it.", ephemeral=True)
+            embed = await self.tracker.title_embed(found)
+            embed.set_author(
+                name=f"{interaction.user.display_name} added this to their watchlist" if added
+                else "Already on your watchlist",
+                icon_url=interaction.user.display_avatar.url,
+            )
+            await interaction.followup.send(embed=embed, view=self.tracker.title_buttons(found))
 
     @app_commands.command(name="remove", description="Take something off your watchlist")
     async def remove(self, interaction: discord.Interaction, title: str) -> None:
@@ -734,7 +758,10 @@ class WatchGroup(app_commands.Group):
             removed = await self.tracker.store.execute(
                 "DELETE FROM watchlist WHERE user_id = ? AND title_id = ?", (interaction.user.id, found.id)
             )
-            await interaction.followup.send("Removed." if removed else "That wasn't on your watchlist.", ephemeral=True)
+            await interaction.followup.send(
+                f"Took **{found.name}** off your watchlist." if removed else f"**{found.name}** wasn't on your watchlist.",
+                ephemeral=True,
+            )
 
     @app_commands.command(name="watchlist", description="See your or a friend's watchlist")
     async def watchlist(self, interaction: discord.Interaction, friend: discord.Member | None = None) -> None:
@@ -746,16 +773,12 @@ class WatchGroup(app_commands.Group):
         if not rows:
             await interaction.followup.send(f"{who.display_name}'s watchlist is empty.")
             return
-        lines, poster = [], None
-        for row in rows:
-            title = await self.tracker.meta.title(row["type"], row["title_id"])
-            if title:
-                poster = poster or title.poster
-                lines.append(f"{'🎬' if title.type == 'movie' else '📺'} [{title.name}]({title.url}) {title.year}" if title.url else f"{title.name}")
-        embed = discord.Embed(title=f"{who.display_name}'s watchlist", description="\n".join(lines), color=COLOR)
-        if poster:
-            embed.set_thumbnail(url=poster)
-        await interaction.followup.send(embed=embed)
+        titles = [t for t in [await self.tracker.meta.title(r["type"], r["title_id"]) for r in rows] if t]
+        embeds = [self.tracker.card(t) for t in titles[:9]]
+        if len(titles) > 9:
+            more = ", ".join(t.name for t in titles[9:])
+            embeds.append(discord.Embed(description=_clip(f"Also: {more}", 1000), color=COLOR))
+        await interaction.followup.send(content=f"**{who.display_name}'s watchlist** ({len(titles)})", embeds=embeds)
 
     @app_commands.command(name="recs", description="Things friends recommended to you")
     async def recs(self, interaction: discord.Interaction) -> None:
@@ -767,13 +790,13 @@ class WatchGroup(app_commands.Group):
         if not rows:
             await interaction.followup.send("Nobody has recommended you anything yet.", ephemeral=True)
             return
-        lines = []
-        for row in rows:
+        embeds = []
+        for row in rows[:10]:
             title = await self.tracker.meta.title(row["type"], row["title_id"])
             if title:
-                note = f" — “{_clip(row['note'], 80)}”" if row["note"] else ""
-                lines.append(f"**{title.name}** from <@{row['from_user']}>{note}")
-        await interaction.followup.send(embed=discord.Embed(title="Recommended to you", description="\n".join(lines), color=COLOR), ephemeral=True)
+                note = f"From <@{row['from_user']}>" + (f": “{_clip(row['note'], 120)}”" if row["note"] else "")
+                embeds.append(self.tracker.card(title, note))
+        await interaction.followup.send(content="**Recommended to you**", embeds=embeds, ephemeral=True)
 
     @app_commands.command(name="now", description="What everyone is watching")
     async def now(self, interaction: discord.Interaction) -> None:
