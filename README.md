@@ -52,6 +52,8 @@ It prints a Google link partway through. After you allow access, your browser la
 | `/watch now` `history` `stats` `watchlist` `recs` | Anyone | Who's watching what, your history, totals, lists |
 | `/watch match` | Anyone | Shows how similar your taste is to a friend's |
 | `/watch movienight` | Anyone | Starts a vote on what to watch from everyone's watchlists; the winner is announced when it closes |
+| `/list create` `add` | Anyone | Ranked lists (1st to last): paste many titles at once, one per line; numbers, years and IMDb links are understood |
+| `/list move` `remove` `show` `all` `delete` | Anyone | Reorder, trim, show yours or a friend's lists |
 | `/watch recap` | Anyone | The week's watching (also posted automatically Sunday evening) |
 | `/lyrics setup` | Owner | Picks the music channel, and optionally adds a Spicy Lyrics key |
 | `/lyrics on` / `off` / `now` | Anyone | Opt in or out of live lyrics for your Spotify; `now` sends you the full lyrics privately |

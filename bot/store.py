@@ -121,6 +121,20 @@ CREATE TABLE IF NOT EXISTS watchlist (
     added_at REAL NOT NULL,
     PRIMARY KEY (user_id, title_id)
 );
+CREATE TABLE IF NOT EXISTS ranked_list (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ranked_list_name ON ranked_list(user_id, name COLLATE NOCASE);
+CREATE TABLE IF NOT EXISTS ranked_item (
+    list_id INTEGER NOT NULL,
+    position INTEGER NOT NULL,
+    title_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    PRIMARY KEY (list_id, title_id)
+);
 CREATE TABLE IF NOT EXISTS recommendation (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     from_user INTEGER NOT NULL,

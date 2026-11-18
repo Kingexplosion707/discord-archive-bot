@@ -23,6 +23,7 @@ from .meta import CINEMETA, KITSU, MetaClient
 from .tracker import TitleButton, Tracker, TrackerGroup, VoteButton, WatchGroup
 from .web import build_app
 from .tunnel import Tunnel
+from .lists import ListGroup
 from .stremio_progress import STREMIO_API, StremioProgress
 from .pipeline import AttachmentGone, Pipeline, TemporaryProblem
 from .store import Job, Store
@@ -226,6 +227,7 @@ class ArchiveClient(discord.Client):
         self.tree.add_command(ArchiveGroup(self), guild=guild)
         self.tree.add_command(TrackerGroup(self.tracker), guild=guild)
         self.tree.add_command(WatchGroup(self.tracker), guild=guild)
+        self.tree.add_command(ListGroup(self.tracker), guild=guild)
         self.tree.add_command(LyricsGroup(self.lyrics), guild=guild)
         self.tree.on_error = self._on_command_error
         await self.tree.sync(guild=guild)

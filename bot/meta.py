@@ -236,8 +236,9 @@ class MetaClient:
                 results.append(title)
         return results[:limit]
 
-    async def best_match(self, query: str) -> Title | None:
-        """The title someone most likely means when they type a name: close name, well rated."""
+    async def best_match(self, query: str, year: str | None = None) -> Title | None:
+        """The title someone most likely means when they type a name: close name, well rated.
+        A year, if given, picks between titles with the same name."""
         found = await self.search(query, limit=12)
         candidates = [t for t in found if name_match(query, t.name) > 0][:6] or found[:2]
         if not candidates:
@@ -254,6 +255,8 @@ class MetaClient:
                 score -= 1.0
             if title.trailer:
                 score += 0.3
+            if year and title.year.startswith(year):
+                score += 2.5
             return score
 
         return max(titles, key=likely)
