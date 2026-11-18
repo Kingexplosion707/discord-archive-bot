@@ -102,6 +102,9 @@ class FakeServices:
         self.spicy: dict[str, dict[str, Any]] = {}
         self.spicy_auth: list[str] = []
         self.lrclib: dict[str, dict[str, Any]] = {}
+        # Stremio accounts: email -> (password, authKey); library items per authKey.
+        self.stremio_accounts: dict[str, tuple[str, str]] = {}
+        self.stremio_library: dict[str, list[dict[str, Any]]] = {}
         self.drive_files: dict[str, dict[str, Any]] = {}
         self.drive_sessions: dict[str, dict[str, Any]] = {}
         self.drive_status = 200
@@ -132,6 +135,8 @@ class FakeServices:
         r.add_get("/cinemeta/catalog/{type}/top/{extra}", self._search)
         r.add_get("/spicy/v1/lyrics/{track}", self._spicy)
         r.add_get("/lrclib/api/get", self._lrclib_get)
+        r.add_post("/stremio-api/api/login", self._stremio_login)
+        r.add_post("/stremio-api/api/datastoreGet", self._stremio_library)
         r.add_get("/lrclib/api/search", self._lrclib_search)
         r.add_get(f"{api}/users/{{user}}", self._user)
         r.add_post(f"{api}/users/@me/channels", self._dm_channel)
@@ -716,6 +721,19 @@ class FakeServices:
             return _json({"Status": 401, "Body": {"error": "missing_authorization"}}, 401)
         found = self.spicy.get(request.match_info["track"])
         return _json(found) if found else _json({"Status": 404}, 404)
+
+    async def _stremio_login(self, request: web.Request) -> web.Response:
+        body = await request.json()
+        account = self.stremio_accounts.get(body.get("email", ""))
+        if body.get("type") != "Login" or account is None or account[0] != body.get("password"):
+            return web.json_response({"error": {"message": "Wrong passphrase", "code": 3}})
+        return web.json_response({"result": {"authKey": account[1], "user": {"email": body["email"]}}})
+
+    async def _stremio_library(self, request: web.Request) -> web.Response:
+        body = await request.json()
+        if body.get("collection") != "libraryItem" or body.get("authKey") not in self.stremio_library:
+            return web.json_response({"error": {"message": "Session not found", "code": 1}})
+        return web.json_response({"result": self.stremio_library[body["authKey"]]})
 
     async def _lrclib_get(self, request: web.Request) -> web.Response:
         found = self.lrclib.get(request.query.get("track_name", ""))

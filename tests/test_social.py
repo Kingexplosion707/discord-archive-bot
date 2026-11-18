@@ -1,6 +1,7 @@
 """The TV/movie tracker, the personal Stremio addon, and live lyrics, end to end."""
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import time
@@ -387,3 +388,63 @@ async def test_live_lyrics(harness: Harness, monkeypatch: pytest.MonkeyPatch) ->
     import asyncio
     await asyncio.sleep(1)
     assert len(sent_to(fake, music)) == before
+
+
+async def test_live_progress_from_stremio_account(harness: Harness) -> None:
+    from bot import stremio_progress
+
+    fake = harness.fake
+    add_titles(fake)
+    general = fake.add_channel("general")
+    activity = fake.add_channel("watching")
+    fake.stremio_accounts["owner@example.com"] = ("hunter2", "auth-owner")
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    item = {"_id": SHOW, "name": "Breaking Bad", "type": "series", "removed": False, "temp": False,
+            "state": {"lastWatched": now, "timeOffset": 600_000, "duration": 2_820_000,
+                      "video_id": f"{SHOW}:1:7", "flaggedWatched": 0}}
+    old = {"_id": MOVIE, "name": "Interstellar", "type": "movie", "removed": False,
+           "state": {"lastWatched": "2020-01-01T00:00:00Z", "timeOffset": 5000, "duration": 9_000_000}}
+    fake.stremio_library["auth-owner"] = [item, old]
+    client = await harness.start()
+    await client.store.kv_set("tracker_channel", str(activity))
+
+    opened = await fake.slash(OWNER_ID, "progress", general, _group="tracker")
+    await until(lambda: fake.replies[opened], 20, "the sign-in box")
+    modal = fake.replies[opened][0]["payload"]["data"]
+    wrong = await fake.submit_modal(OWNER_ID, general, modal, ["owner@example.com", "nope"])
+    await until(lambda: len(fake.replies[wrong]) >= 2, 20, "the wrong password reply")
+    assert "Wrong passphrase" in harness.reply_text(wrong)
+
+    opened = await fake.slash(OWNER_ID, "progress", general, _group="tracker")
+    await until(lambda: fake.replies[opened], 20, "the sign-in box again")
+    good = await fake.submit_modal(OWNER_ID, general, fake.replies[opened][0]["payload"]["data"],
+                                   ["owner@example.com", "hunter2"])
+    await until(lambda: len(fake.replies[good]) >= 2, 20, "connected")
+    assert "Connected" in harness.reply_text(good)
+    row = await client.store.fetch_one("SELECT * FROM stremio_account WHERE user_id = ?", (OWNER_ID,))
+    assert b"hunter2" not in row["auth_key"] and b"auth-owner" not in row["auth_key"]
+
+    # Watching shows up with the exact position, without the addon.
+    await until(lambda: sent_to(fake, activity), 20, "the watching post")
+    assert len(sent_to(fake, activity)) == 1, "only what's being watched now"
+    await until(lambda: any("10:00 / 47:00" in json.dumps(e["payload"]) for e in fake.edits), 20, "the position")
+    edit = next(e for e in fake.edits if "10:00 / 47:00" in json.dumps(e["payload"]))
+    assert "is watching" in json.dumps(edit["payload"]) and "21%" in json.dumps(edit["payload"])
+
+    item["state"]["timeOffset"] = 1_500_000
+    await until(lambda: any("25:00 / 47:00" in json.dumps(e["payload"]) for e in fake.edits), 20, "moving on")
+    item["state"]["timeOffset"] = 2_700_000
+    await until(lambda: any("Finished" in json.dumps(e["payload"]) for e in fake.edits), 20, "the finish")
+    finished = next(e for e in fake.edits if "Finished" in json.dumps(e["payload"]))
+    assert "finished" in json.dumps(finished["payload"]["embeds"][0]["author"])
+    count = len(fake.edits)
+    item["state"]["timeOffset"] = 2_750_000
+    await asyncio.sleep(1.0)
+    assert len(sent_to(fake, activity)) == 1, "no second post for the same episode"
+    assert len(fake.edits) == count, "a finished post stays finished"
+
+    assert stremio_progress.clock(3_725_000) == "1:02:05" and stremio_progress.clock(65_000) == "1:05"
+
+    off = await fake.slash(OWNER_ID, "progress-off", general, _group="tracker")
+    await until(lambda: harness.reply_text(off), 20, "disconnect")
+    assert "Disconnected" in harness.reply_text(off)

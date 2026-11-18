@@ -117,15 +117,20 @@ class Tracker:
         user_id = await self.user_for_token(token)
         if user_id is None:
             return False
+        await self.record_play(user_id, kind, video_id)
+        return True
+
+    async def record_play(self, user_id: int, kind: str, video_id: str) -> bool:
+        """Logs a play and posts it, unless it's the same video again soon after. True if new."""
         title_id, season, number = split_video_id(video_id)
         if not title_id or not re.fullmatch(r"(tt\d+|kitsu:\d+)", title_id):
-            return True
+            return False
         recent = await self.store.fetch_one(
             "SELECT 1 FROM watch_event WHERE user_id = ? AND video_id = ? AND watched_at > ?",
             (user_id, video_id, time.time() - REPEAT_WINDOW),
         )
         if recent:
-            return True
+            return False
         kind = "series" if kind == "series" or season is not None else "movie"
         await self.store.execute(
             "INSERT INTO watch_event (user_id, title_id, video_id, type, season, episode, watched_at) "
@@ -138,10 +143,12 @@ class Tracker:
                 "ON CONFLICT(user_id, title_id) DO UPDATE SET last_seen_episode = excluded.last_seen_episode",
                 (user_id, title_id, video_id),
             )
-        self.client._spawn(self._post_play(user_id, kind, title_id, season, number))
+        self.client._spawn(self._post_play(user_id, kind, title_id, season, number, video_id))
         return True
 
-    async def _post_play(self, user_id: int, kind: str, title_id: str, season: int | None, number: int | None) -> None:
+    async def _post_play(
+        self, user_id: int, kind: str, title_id: str, season: int | None, number: int | None, video_id: str = ""
+    ) -> None:
         if await self.setting(user_id, "private"):
             return
         channel = await self.channel()
@@ -151,7 +158,17 @@ class Tracker:
         if title is None:
             return
         embed = await self.watch_embed(user_id, title, season, number)
-        await channel.send(embed=embed, view=self.title_buttons(title), allowed_mentions=NO_PINGS)
+        message = await channel.send(embed=embed, view=self.title_buttons(title), allowed_mentions=NO_PINGS)
+        if video_id:
+            # Remembered so live progress can be added to this post.
+            now = time.time()
+            await self.store.execute(
+                "INSERT INTO watch_post (user_id, video_id, channel_id, message_id, posted_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(user_id, video_id) DO UPDATE SET "
+                "channel_id = excluded.channel_id, message_id = excluded.message_id, posted_at = excluded.posted_at, "
+                "offset_ms = NULL, duration_ms = NULL, state = 'watching', updated_at = excluded.updated_at",
+                (user_id, video_id, channel.id, message.id, now, now),
+            )
 
     async def watch_embed(self, user_id: int, title: Title, season: int | None, number: int | None) -> discord.Embed:
         episode = title.episode(season, number)
@@ -590,6 +607,29 @@ class RecommendPicker(discord.ui.View):
         await interaction.response.edit_message(content=result, view=None)
 
 
+class StremioLoginModal(discord.ui.Modal, title="Connect your Stremio account"):
+    email: discord.ui.TextInput = discord.ui.TextInput(label="Stremio email", max_length=200)
+    password: discord.ui.TextInput = discord.ui.TextInput(
+        label="Stremio password (used once, not saved)", max_length=200
+    )
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        progress = interaction.client.progress  # type: ignore[attr-defined]
+        from .stremio_progress import StremioError
+
+        try:
+            await progress.link(interaction.user.id, str(self.email.value), str(self.password.value))
+        except StremioError as exc:
+            await interaction.followup.send(f"Couldn't connect: {exc}", ephemeral=True)
+            return
+        await interaction.followup.send(
+            "Connected. When you watch something in Stremio, your post shows where you are and when you finish. "
+            "Your password wasn't saved. `/tracker progress-off` disconnects it.",
+            ephemeral=True,
+        )
+
+
 class VoteButton(discord.ui.DynamicItem[discord.ui.Button], template=r"trk:vote:(?P<choice>[0-9])"):
     def __init__(self, choice: int, label: str = "") -> None:
         super().__init__(discord.ui.Button(
@@ -664,6 +704,18 @@ class TrackerGroup(app_commands.Group):
             "From then on, whatever you press play on gets posted, and your watchlist and friends' picks show up on "
             "Stremio's home screen." + note,
             view=view, ephemeral=True,
+        )
+
+    @app_commands.command(name="progress", description="Show where you are in what you watch (connects your Stremio account)")
+    async def progress(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_modal(StremioLoginModal())
+
+    @app_commands.command(name="progress-off", description="Disconnect your Stremio account")
+    async def progress_off(self, interaction: discord.Interaction) -> None:
+        removed = await self.tracker.client.progress.unlink(interaction.user.id)
+        await interaction.response.send_message(
+            "Disconnected. Your posts won't show progress anymore." if removed else "Your Stremio account wasn't connected.",
+            ephemeral=True,
         )
 
     @app_commands.command(name="unlink", description="Turn off your addon link (makes a new one next time)")

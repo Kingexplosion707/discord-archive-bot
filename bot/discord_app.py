@@ -23,6 +23,7 @@ from .meta import CINEMETA, KITSU, MetaClient
 from .tracker import TitleButton, Tracker, TrackerGroup, VoteButton, WatchGroup
 from .web import build_app
 from .tunnel import Tunnel
+from .stremio_progress import STREMIO_API, StremioProgress
 from .pipeline import AttachmentGone, Pipeline, TemporaryProblem
 from .store import Job, Store
 from .vault import Vault
@@ -150,6 +151,7 @@ class ArchiveClient(discord.Client):
         kitsu: str = KITSU,
         spicy_api: str = SPICY_API,
         lrclib_api: str = LRCLIB_API,
+        stremio_api: str = STREMIO_API,
     ) -> None:
         intents = discord.Intents.none()
         intents.guilds = True
@@ -169,6 +171,9 @@ class ArchiveClient(discord.Client):
         self.tracker: Tracker = None  # type: ignore[assignment]
         self.lyrics: LyricsService = None  # type: ignore[assignment]
         self.tracker_job_seconds = 60.0
+        self.stremio_poll_seconds = 20.0
+        self._stremio_api = stremio_api
+        self.progress: StremioProgress = None  # type: ignore[assignment]
         self._web_runner: aioweb.AppRunner | None = None
         self.config = config
         self.tree = app_commands.CommandTree(self)
@@ -204,6 +209,7 @@ class ArchiveClient(discord.Client):
         self.pipeline = Pipeline(config, self.store, self.web, google, self)
         self.crawler = Crawler(self, config, self.store, self.pipeline.wake)
         self.tracker = Tracker(self, self.store, MetaClient(self.web, self.store, *self._meta_urls))
+        self.progress = StremioProgress(self, self.tracker, self._stremio_api)
         self.lyrics = LyricsService(self, self.store, LyricsFetcher(self.web, *self._lyrics_urls))
         self.add_dynamic_items(TitleButton, VoteButton)
 
@@ -240,6 +246,7 @@ class ArchiveClient(discord.Client):
         await self.wait_until_ready()
         self._pipeline_task = self._spawn(self.pipeline.run())
         self._spawn(self.tracker.run_jobs())
+        self._spawn(self._poll_stremio())
         if self.config.start_fresh and await self.store.kv_get(FRESH_START_KEY) is None:
             # Everything already in the server went to the album from the old machine.
             # Record it (and log its messages) without uploading it again.
@@ -262,6 +269,15 @@ class ArchiveClient(discord.Client):
                     self.pipeline.wake()
             except Exception:
                 log.exception("Couldn't retry failed items")
+
+    async def _poll_stremio(self) -> None:
+        await self.wait_until_ready()
+        while not self.is_closed():
+            try:
+                await self.progress.poll_all()
+            except Exception:
+                log.exception("Stremio progress check failed")
+            await asyncio.sleep(self.stremio_poll_seconds)
 
     async def close(self) -> None:
         if self.tunnel is not None:

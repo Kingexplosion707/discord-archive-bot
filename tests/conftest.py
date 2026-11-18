@@ -95,8 +95,10 @@ class Harness:
             kitsu=f"{self.fake.base}/kitsu",
             spicy_api=f"{self.fake.base}/spicy",
             lrclib_api=f"{self.fake.base}/lrclib",
+            stremio_api=f"{self.fake.base}/stremio-api",
         )
         self.client.tracker_job_seconds = 0.2
+        self.client.stremio_poll_seconds = 0.2
         self._task = asyncio.create_task(self.client.start("fake-token"))
         _running_client = self._task
         await until(self.client.is_ready, 30, "the bot to connect")

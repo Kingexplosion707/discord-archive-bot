@@ -45,7 +45,8 @@ It prints a Google link partway through. After you allow access, your browser la
 | `/archive google` | Owner | Signs the bot in to Google (works from your phone) |
 | `/tracker setup` | Owner | Picks the channel where watch activity, episode alerts and recaps go |
 | `/tracker link` | Anyone | DMs you your personal Stremio addon link (install it once in Stremio) |
-| `/tracker privacy` `pings` `unlink` | Anyone | Hide your activity, turn pings off, or reset your addon link |
+| `/tracker progress` | Anyone | Connects your Stremio account so posts show where you are (e.g. 23:41 / 47:12) and when you finish |
+| `/tracker privacy` `pings` `unlink` `progress-off` | Anyone | Hide your activity, turn pings off, or reset your addon link |
 | `/watch info` `rate` `add` `remove` | Anyone | Look up a title with poster and details, rate it, add it to your watchlist |
 | `/watch recommend` | Anyone | Recommends a title to a friend and pings them; it shows up in their Stremio |
 | `/watch now` `history` `stats` `watchlist` `recs` | Anyone | Who's watching what, your history, totals, lists |
@@ -59,7 +60,7 @@ It prints a Google link partway through. After you allow access, your browser la
 
 Each person runs `/tracker link`, opens the link, and clicks **Install** in Stremio. From then on, whenever they start something in Stremio the bot posts it in the tracker channel with the poster, episode still, description, IMDb rating, cast, who else has seen it, and buttons to add, rate or recommend it. Followed shows get a ping when a new episode comes out. The addon also adds rows to Stremio's home screen: your watchlist, what friends recommended you, and what friends are watching. Details come from Stremio's own Cinemeta (anime from the Kitsu addon), so no API key is needed.
 
-The addon only knows something was watched when playback starts, so it logs plays, not how far you got.
+The addon alone only knows when playback starts. Run `/tracker progress` and sign in to Stremio once (the password isn't saved, only Stremio's sign-in key, encrypted) and your post also shows a live progress bar with the exact time, then switches to Finished at 90%. Posts don't ping anyone; pings are for recommendations and new episodes of shows you follow.
 
 ## Live lyrics
 

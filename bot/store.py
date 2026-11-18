@@ -87,6 +87,24 @@ CREATE TABLE IF NOT EXISTS watch_event (
 );
 CREATE INDEX IF NOT EXISTS watch_event_user ON watch_event(user_id, watched_at);
 CREATE INDEX IF NOT EXISTS watch_event_title ON watch_event(title_id);
+CREATE TABLE IF NOT EXISTS watch_post (
+    user_id INTEGER NOT NULL,
+    video_id TEXT NOT NULL,
+    channel_id INTEGER NOT NULL,
+    message_id INTEGER NOT NULL,
+    posted_at REAL NOT NULL,
+    offset_ms INTEGER,
+    duration_ms INTEGER,
+    state TEXT NOT NULL DEFAULT 'watching',
+    updated_at REAL NOT NULL,
+    PRIMARY KEY (user_id, video_id)
+);
+CREATE TABLE IF NOT EXISTS stremio_account (
+    user_id INTEGER PRIMARY KEY,
+    auth_key BLOB NOT NULL,
+    email TEXT,
+    added_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS rating (
     user_id INTEGER NOT NULL,
     title_id TEXT NOT NULL,
