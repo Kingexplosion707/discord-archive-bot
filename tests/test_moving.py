@@ -62,7 +62,7 @@ async def test_sign_in_to_google_from_discord(harness: Harness, monkeypatch: pyt
     general = fake.add_channel("general")
     client = await harness.start()
     command = next(c for c in fake.synced_commands if c["name"] == "archive")
-    assert {o["name"] for o in command["options"]} == {"scan", "status", "google"}
+    assert {o["name"] for o in command["options"]} == {"scan", "status", "google", "tunnel"}
 
     denied = await fake.slash(2001, "google", general)
     await until(lambda: fake.replies[denied], 20, "the refusal")

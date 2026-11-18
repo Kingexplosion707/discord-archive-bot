@@ -90,7 +90,7 @@ async def test_uploads_everything_in_the_server(harness: Harness) -> None:
     client = await harness.start(SKIP_CHANNEL_IDS=skipped)
     assert fake.identify["intents"] == (1 << 0) | (1 << 1) | (1 << 8) | (1 << 9) | (1 << 15)
     command = next(c for c in fake.synced_commands if c["name"] == "archive")
-    assert {o["name"] for o in command["options"]} == {"scan", "status", "google"}
+    assert {o["name"] for o in command["options"]} == {"scan", "status", "google", "tunnel"}
 
     await until(lambda: "in-forum.jpg" in harness.uploaded(), 60, "the crawl to finish")
     await until(harness.drained, 60, "the queue to empty")

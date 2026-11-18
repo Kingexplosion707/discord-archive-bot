@@ -29,6 +29,7 @@ from .vault import Vault
 
 log = logging.getLogger(__name__)
 FRESH_START_KEY = "fresh_start_done"
+TUNNEL_TOKEN_KEY = "tunnel_token"
 
 
 class ArchiveGroup(app_commands.Group):
@@ -72,6 +73,23 @@ class ArchiveGroup(app_commands.Group):
         )
         await interaction.response.send_message(
             embed=embed, view=GoogleLoginView(self.bot, flow, state, url), ephemeral=True
+        )
+
+    @app_commands.command(name="tunnel", description="Set the Cloudflare tunnel token for the web address")
+    @app_commands.describe(token="From Cloudflare Zero Trust > Networks > Tunnels > your tunnel")
+    async def tunnel(self, interaction: discord.Interaction, token: str) -> None:
+        if interaction.user.id != self.bot.config.owner_id:
+            await interaction.response.send_message("Only the bot owner can do that.", ephemeral=True)
+            return
+        token = "".join(token.split()).strip("\"'")
+        await self.bot.store.kv_set(TUNNEL_TOKEN_KEY, token)
+        tunnel = self.bot.tunnel
+        tunnel.set_token(token)
+        if not tunnel.running:
+            self.bot._spawn(tunnel.run())
+        await interaction.response.send_message(
+            "Saved. The tunnel is restarting with the new token; check `/archive status` in a minute.",
+            ephemeral=True,
         )
 
     @app_commands.command(name="status", description="Show upload progress")
@@ -193,7 +211,8 @@ class ArchiveClient(discord.Client):
         await self._web_runner.setup()
         await aioweb.TCPSite(self._web_runner, config.web_host, config.web_port).start()
         log.info("Web server listening on port %s", config.web_port)
-        self.tunnel = Tunnel(config.tunnel_token)
+        # A token set with /archive tunnel wins over the one in .env.
+        self.tunnel = Tunnel(await self.store.kv_get(TUNNEL_TOKEN_KEY) or config.tunnel_token)
         if self.tunnel.enabled:
             self._spawn(self.tunnel.run())
 
