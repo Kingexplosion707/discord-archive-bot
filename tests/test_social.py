@@ -448,3 +448,64 @@ async def test_live_progress_from_stremio_account(harness: Harness) -> None:
     off = await fake.slash(OWNER_ID, "progress-off", general, _group="tracker")
     await until(lambda: harness.reply_text(off), 20, "disconnect")
     assert "Disconnected" in harness.reply_text(off)
+
+
+async def test_stremio_library_and_status(harness: Harness) -> None:
+    fake = harness.fake
+    add_titles(fake)
+    general = fake.add_channel("general")
+    activity = fake.add_channel("watching")
+    fake.stremio_accounts["owner@example.com"] = ("pw", "auth-owner")
+    # Stremio hasn't bumped lastWatched, but the position moves: still counts as watching.
+    item = {"_id": SHOW, "name": "Breaking Bad", "type": "series", "removed": False, "temp": False,
+            "_mtime": "2026-01-01T00:00:00.000Z",
+            "state": {"lastWatched": "2026-01-01T00:00:00.000Z", "timeOffset": 60_000, "duration": 2_820_000,
+                      "video_id": f"{SHOW}:1:3"}}
+    fake.stremio_library["auth-owner"] = [item]
+    client = await harness.start()
+    await client.store.kv_set("tracker_channel", str(activity))
+
+    status = await fake.slash(OWNER_ID, "status", general, _group="tracker")
+    await until(lambda: fake.replies[status], 20, "status before setup")
+    text = json.dumps(fake.replies[status][0]["payload"], ensure_ascii=False)
+    assert "not set up" in text and "not connected" in text
+
+    opened = await fake.slash(OWNER_ID, "progress", general, _group="tracker")
+    await until(lambda: fake.replies[opened], 20, "sign-in box")
+    done = await fake.submit_modal(OWNER_ID, general, fake.replies[opened][0]["payload"]["data"], ["owner@example.com", "pw"])
+    await until(lambda: len(fake.replies[done]) >= 2, 20, "connected")
+    await asyncio.sleep(0.6)
+    assert not sent_to(fake, activity), "an old, unmoving position isn't a new watch"
+    item["state"]["timeOffset"] = 90_000
+    await until(lambda: sent_to(fake, activity), 20, "the post once the position moves")
+    await until(lambda: any("1:30 / 47:00" in json.dumps(e["payload"]) for e in fake.edits), 20, "the time")
+
+    # The addon alone (no Stremio account) posts without a progress bar.
+    bob_token = await link(harness, BOB_ID, general)
+    status_code, _ = await get(f"{client.config.public_url}/stremio/{bob_token}/subtitles/movie/{MOVIE}/x.json")
+    assert status_code == 200
+    await until(lambda: len(sent_to(fake, activity)) >= 2, 20, "Bob's post")
+    bob_post = sent_to(fake, activity)[1]["payload"]
+    assert "Progress" not in json.dumps(bob_post)
+
+    # Adding to the watchlist also saves to the Stremio library, in Stremio's own format.
+    added = await fake.slash(OWNER_ID, "add", general, _group="watch", title=f"movie:{MOVIE}")
+    await until(lambda: len(fake.replies[added]) >= 2, 20, "watchlist add")
+    assert "Stremio library" in json.dumps(fake.replies[added][1]["payload"])
+    saved = next(i for i in fake.stremio_library["auth-owner"] if i["_id"] == MOVIE)
+    assert saved["removed"] is False and saved["type"] == "movie" and saved["state"]["timeOffset"] == 0
+    assert set(saved) >= {"_id", "name", "type", "poster", "_ctime", "_mtime", "state", "behaviorHints"}
+
+    shown = await fake.slash(OWNER_ID, "library", general, _group="watch")
+    await until(lambda: len(fake.replies[shown]) >= 2, 20, "the library")
+    library = json.dumps(fake.replies[shown][1]["payload"], ensure_ascii=False)
+    assert "Breaking Bad" in library and "S1E3" in library and "1:30 / 47:00" in library and "Interstellar" in library
+
+    removed = await fake.slash(OWNER_ID, "remove", general, _group="watch", title=f"movie:{MOVIE}")
+    await until(lambda: len(fake.replies[removed]) >= 2, 20, "watchlist remove")
+    assert next(i for i in fake.stremio_library["auth-owner"] if i["_id"] == MOVIE)["removed"] is True
+
+    status = await fake.slash(OWNER_ID, "status", general, _group="tracker")
+    await until(lambda: fake.replies[status], 20, "status after setup")
+    text = json.dumps(fake.replies[status][0]["payload"], ensure_ascii=False)
+    assert "Activity channel" in text and "connected, checked" in text and "Last logged" in text

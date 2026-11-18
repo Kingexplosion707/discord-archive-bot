@@ -137,6 +137,7 @@ class FakeServices:
         r.add_get("/lrclib/api/get", self._lrclib_get)
         r.add_post("/stremio-api/api/login", self._stremio_login)
         r.add_post("/stremio-api/api/datastoreGet", self._stremio_library)
+        r.add_post("/stremio-api/api/datastorePut", self._stremio_put)
         r.add_get("/lrclib/api/search", self._lrclib_search)
         r.add_get(f"{api}/users/{{user}}", self._user)
         r.add_post(f"{api}/users/@me/channels", self._dm_channel)
@@ -733,7 +734,19 @@ class FakeServices:
         body = await request.json()
         if body.get("collection") != "libraryItem" or body.get("authKey") not in self.stremio_library:
             return web.json_response({"error": {"message": "Session not found", "code": 1}})
-        return web.json_response({"result": self.stremio_library[body["authKey"]]})
+        items = self.stremio_library[body["authKey"]]
+        if body.get("ids"):
+            items = [i for i in items if i["_id"] in body["ids"]]
+        return web.json_response({"result": items})
+
+    async def _stremio_put(self, request: web.Request) -> web.Response:
+        body = await request.json()
+        library = self.stremio_library.get(body.get("authKey"))
+        if library is None or body.get("collection") != "libraryItem":
+            return web.json_response({"error": {"message": "Session not found", "code": 1}})
+        for change in body.get("changes", []):
+            library[:] = [i for i in library if i["_id"] != change["_id"]] + [change]
+        return web.json_response({"result": {"success": True}})
 
     async def _lrclib_get(self, request: web.Request) -> web.Response:
         found = self.lrclib.get(request.query.get("track_name", ""))

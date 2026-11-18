@@ -83,6 +83,12 @@ class Tracker:
         row = await self.store.fetch_one("SELECT user_id FROM tracker_user WHERE token = ?", (token,))
         return None if row is None else int(row["user_id"])
 
+    async def note_addon_contact(self, token: str, what: str) -> None:
+        """Remembers when someone's Stremio last talked to their addon, for /tracker status."""
+        user_id = await self.user_for_token(token)
+        if user_id is not None:
+            await self.store.kv_set(f"addon_seen:{user_id}", json.dumps({"at": time.time(), "what": what}))
+
     async def setting(self, user_id: int, name: str) -> int:
         row = await self.store.fetch_one(f"SELECT {name} FROM tracker_user WHERE user_id = ?", (user_id,))
         return int(row[name]) if row else (1 if name == "pings" else 0)
@@ -271,6 +277,7 @@ class Tracker:
             "INSERT OR IGNORE INTO watchlist (user_id, title_id, type, added_at) VALUES (?, ?, ?, ?)",
             (user_id, title_id, kind, time.time()),
         )
+        await self.client.progress.mirror_to_library(user_id, kind, title_id, add=True)
         return bool(changed)
 
     async def rate(self, user_id: int, kind: str, title_id: str, score: int, review: str | None) -> None:
@@ -706,6 +713,49 @@ class TrackerGroup(app_commands.Group):
             view=view, ephemeral=True,
         )
 
+    @app_commands.command(name="status", description="Check that your watching gets posted, and why not if it doesn't")
+    async def status(self, interaction: discord.Interaction) -> None:
+        tracker = self.tracker
+        user_id = interaction.user.id
+        lines = []
+        channel = await tracker.channel()
+        lines.append(f"✅ Activity channel: {channel.mention}" if channel and hasattr(channel, "mention")
+                     else "❌ No activity channel yet. An admin needs to run `/tracker setup`.")
+        if await tracker.setting(user_id, "private"):
+            lines.append("⚠️ Your activity is hidden (`/tracker privacy` to show it).")
+        seen = await tracker.store.kv_get(f"addon_seen:{user_id}")
+        if seen:
+            info = json.loads(seen)
+            what = {"subtitles": "a video started", "catalog": "home screen rows loaded", "manifest": "installed or refreshed"}
+            lines.append(f"✅ Addon: Stremio last checked in <t:{int(info['at'])}:R> ({what.get(info['what'], info['what'])}).")
+        elif await tracker.store.fetch_one("SELECT 1 FROM tracker_user WHERE user_id = ?", (user_id,)):
+            lines.append("❌ Addon: Stremio has never contacted your addon. Install it from the `/tracker link` page "
+                         "(on the device you watch on, or the same Stremio account).")
+        else:
+            lines.append("➖ Addon: not set up. `/tracker link` gives you yours.")
+        progress = tracker.client.progress
+        if await progress.is_linked(user_id):
+            check = progress.last_check.get(user_id)
+            if check is None:
+                lines.append("⏳ Stremio account: connected, first check coming up.")
+            elif check[1]:
+                lines.append(f"❌ Stremio account: {check[1]}. Run `/tracker progress` to sign in again.")
+            else:
+                now = f" Watching now: **{check[2]}**." if check[2] else ""
+                lines.append(f"✅ Stremio account: connected, checked <t:{int(check[0])}:R>.{now}")
+        else:
+            lines.append("➖ Stremio account: not connected. `/tracker progress` adds live time and your Stremio library.")
+        last = await tracker.store.fetch_one(
+            "SELECT title_id, type, watched_at FROM watch_event WHERE user_id = ? ORDER BY watched_at DESC LIMIT 1", (user_id,)
+        )
+        if last:
+            title = await tracker.meta.title(last["type"], last["title_id"])
+            lines.append(f"🕘 Last logged: **{title.name if title else last['title_id']}** <t:{int(last['watched_at'])}:R>.")
+        lines.append("-# Plays are only seen in Stremio's own player, not when a video opens in an external player.")
+        await interaction.response.send_message(
+            embed=discord.Embed(title="Your watch tracking", description="\n".join(lines), color=COLOR), ephemeral=True
+        )
+
     @app_commands.command(name="progress", description="Show where you are in what you watch (connects your Stremio account)")
     async def progress(self, interaction: discord.Interaction) -> None:
         await interaction.response.send_modal(StremioLoginModal())
@@ -800,6 +850,8 @@ class WatchGroup(app_commands.Group):
                 else "Already on your watchlist",
                 icon_url=interaction.user.display_avatar.url,
             )
+            if await self.tracker.client.progress.is_linked(interaction.user.id):
+                embed.set_footer(text="Also saved to their Stremio library")
             await interaction.followup.send(embed=embed, view=self.tracker.title_buttons(found))
 
     @app_commands.command(name="remove", description="Take something off your watchlist")
@@ -810,6 +862,7 @@ class WatchGroup(app_commands.Group):
             removed = await self.tracker.store.execute(
                 "DELETE FROM watchlist WHERE user_id = ? AND title_id = ?", (interaction.user.id, found.id)
             )
+            await self.tracker.client.progress.mirror_to_library(interaction.user.id, found.type, found.id, add=False)
             await interaction.followup.send(
                 f"Took **{found.name}** off your watchlist." if removed else f"**{found.name}** wasn't on your watchlist.",
                 ephemeral=True,
@@ -1000,6 +1053,50 @@ class WatchGroup(app_commands.Group):
             "INSERT INTO movie_night (message_id, channel_id, options, ends_at) VALUES (?, ?, ?, ?)",
             (message.id, message.channel.id, json.dumps(options), ends),
         )
+
+    @app_commands.command(name="library", description="Show a Stremio library: continue watching and saved")
+    async def library(self, interaction: discord.Interaction, user: discord.Member | None = None) -> None:
+        from .stremio_progress import StremioError, clock, progress_bar
+
+        owner = user or interaction.user
+        if owner.id != interaction.user.id and await self.tracker.setting(owner.id, "private"):
+            await interaction.response.send_message(f"{owner.display_name} keeps their watching private.", ephemeral=True)
+            return
+        await interaction.response.defer(thinking=True)
+        try:
+            items = await self.tracker.client.progress.library(owner.id)
+        except StremioError as exc:
+            await interaction.followup.send(f"Couldn't read the Stremio library: {exc}")
+            return
+        if items is None:
+            who = "You haven't" if owner.id == interaction.user.id else f"{owner.display_name} hasn't"
+            await interaction.followup.send(f"{who} connected Stremio yet (`/tracker progress`).")
+            return
+        going, saved = [], []
+        for item in items:
+            state = item.get("state") or {}
+            offset, duration = int(state.get("timeOffset") or 0), int(state.get("duration") or 0)
+            name = str(item.get("name") or item.get("_id"))
+            icon = "🎬" if item.get("type") == "movie" else "📺"
+            if offset > 0 and duration and offset < duration * 0.9:
+                _, season, number = split_video_id(str(state.get("video_id") or ""))
+                label = episode_label(season, number)
+                going.append(f"{icon} **{name}**" + (f" {label}" if label else "")
+                             + f"\n{progress_bar(offset, duration, 10)} `{clock(offset)} / {clock(duration)}`")
+            else:
+                saved.append(f"{icon} {name}")
+        embeds = []
+        top = next((i for i in items if i.get("poster")), None)
+        first = discord.Embed(title=f"{owner.display_name}'s Stremio library", color=COLOR)
+        first.description = _clip("\n".join(going[:12]) or "Nothing in progress.", 4000)
+        first.set_author(name="Continue watching", icon_url=owner.display_avatar.url)
+        if top:
+            first.set_thumbnail(url=top["poster"])
+        embeds.append(first)
+        if saved:
+            more = f"\n…and {len(saved) - 40} more" if len(saved) > 40 else ""
+            embeds.append(discord.Embed(title=f"Saved ({len(saved)})", description=_clip(", ".join(saved[:40]) + more, 4000), color=COLOR))
+        await interaction.followup.send(embeds=embeds)
 
     @app_commands.command(name="recap", description="Post this week's watching recap now")
     async def recap(self, interaction: discord.Interaction) -> None:

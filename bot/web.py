@@ -45,6 +45,8 @@ def build_app(client: "ArchiveClient") -> web.Application:
         tracker = client.tracker
         token = request.match_info["token"]
         tail = request.match_info["tail"]
+        if tail != "install":
+            await tracker.note_addon_contact(token, tail.split("/", 1)[0].removesuffix(".json"))
         if tail == "manifest.json":
             if await tracker.user_for_token(token) is None:
                 return _json({"error": "unknown link"}, 404)
