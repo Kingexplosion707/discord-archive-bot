@@ -22,5 +22,35 @@ services:
     cap_drop:
       - ALL
 
+  # TV Tracker (movies and TV, Simkl). Runs beside the archive bot with its own
+  # Discord token. Off until you add `tv` to COMPOSE_PROFILES in .env.
+  tvtracker:
+    profiles: ["tv"]
+    build:
+      context: https://github.com/Kingexplosion707/tv-tracker.git#main
+      dockerfile_inline: |
+        FROM node:22-slim
+        WORKDIR /app
+        COPY package.json package-lock.json ./
+        RUN npm ci --omit=dev
+        COPY *.js ./
+        COPY dashboard ./dashboard
+        ENV NODE_ENV=production PORT=3000
+        CMD ["node", "index.js"]
+    image: tv-tracker
+    container_name: tv-tracker
+    restart: unless-stopped
+    env_file: tvtracker.env
+    volumes:
+      - tv-data:/app/data
+    ports:
+      - "127.0.0.1:3001:3000"
+    mem_limit: 512m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
 volumes:
   bot-data:
+  tv-data:
