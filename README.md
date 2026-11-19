@@ -94,3 +94,13 @@ The server pulls bot updates from GitHub every hour, so you don't need to log in
 Moving from a machine that's already running the bot instead? `sh move-to-oracle.sh ORACLE_IP` carries everything over, so nothing starts fresh.
 
 Updating: `docker compose build && docker compose up -d` (with `sudo` on Oracle). Your data is kept in the `bot-data` Docker volume.
+
+## TV Tracker (optional)
+
+A second bot, forked from AniTracker and changed to track movies and TV through Simkl, runs beside this one.
+
+1. Create a Discord application for it, invite it to your server, and copy its token and Client ID.
+2. On the server: `cp tvtracker.env.example tvtracker.env`, fill it in (token, Client ID, `SIMKL_CLIENT_ID`, dashboard password and secret), then `chmod 600 tvtracker.env`.
+3. Add `tv` to `COMPOSE_PROFILES` in `.env`, then run `docker compose up -d --build`.
+
+Without the `tv` profile, the service doesn't start, and the archive bot is unaffected.
