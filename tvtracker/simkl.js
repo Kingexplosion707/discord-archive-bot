@@ -8,13 +8,14 @@
 //   activity:  GET  api.simkl.com/sync/activities           (needs a user token)
 //   watched:   GET  api.simkl.com/sync/all-items/{movies|shows} (needs a user token)
 //   sign-in:   POST api.simkl.com/oauth2/device, then /oauth2/token (device code, no redirect URL)
-//   account:   POST api.simkl.com/users/settings            (needs a user token)
+//   account:   GET  api.simkl.com/users/settings            (needs a user token)
+//   renew:     POST api.simkl.com/oauth2/token (refresh_token grant; sign-ins last 7 days)
 
 const SIMKL_API = 'https://api.simkl.com';
 const SIMKL_SEARCH = 'https://api.simkl.org';
 const POSTER_BASE = 'https://simkl.in/posters';
 const REQUEST_TIMEOUT_MS = 12000;
-const APP_NAME = 'TVTracker';
+const APP_NAME = 'tvtracker'; // Simkl asks for a short lowercase app name.
 const APP_VERSION = '1.0.0';
 const USER_AGENT = `${APP_NAME}/${APP_VERSION}`;
 const DEVICE_SCOPE = 'media:read media:write';
@@ -220,7 +221,7 @@ async function pollDeviceLogin(deviceCode) {
       device_code: deviceCode,
     },
   });
-  if (res.ok && res.data?.access_token) return { state: 'done', token: res.data.access_token };
+  if (res.ok && res.data?.access_token) return { state: 'done', ...tokenFields(res.data) };
   const error = res.data?.error;
   if (error === 'authorization_pending') return { state: 'pending' };
   if (error === 'slow_down') return { state: 'slow_down' };
@@ -229,17 +230,40 @@ async function pollDeviceLogin(deviceCode) {
   throw new SimklError(`Simkl sign-in failed (${res.status})`, res.status);
 }
 
-// Who a token belongs to. The name is what the bot shows people.
-async function getAccount(token) {
-  const res = await request(`${SIMKL_API}/users/settings?${commonQuery()}`, { method: 'POST', token, json: {} });
-  if (!res.ok) throw new SimklError(`Simkl account lookup failed (${res.status})`, res.status);
-  const user = res.data?.user || res.data?.account || {};
-  const name = user.name || user.username || user.id || 'Simkl user';
+function tokenFields(data) {
   return {
-    id: String(user.id || user.username || name),
+    token: data.access_token,
+    refreshToken: data.refresh_token || null,
+    expiresIn: Number(data.expires_in) || null,
+    scope: data.scope || null,
+  };
+}
+
+// Swaps a renewal token for a fresh sign-in. Returns the same shape as a sign-in.
+async function refreshLogin(refreshToken) {
+  const res = await request(`${SIMKL_API}/oauth2/token?${commonQuery()}`, {
+    method: 'POST',
+    form: { grant_type: 'refresh_token', client_id: clientId(), refresh_token: refreshToken },
+  });
+  if (res.ok && res.data?.access_token) {
+    const fields = tokenFields(res.data);
+    return { ...fields, refreshToken: fields.refreshToken || refreshToken };
+  }
+  throw new SimklError(`Simkl couldn't renew the sign-in (${res.status} ${res.data?.error || ''})`.trim(), res.status);
+}
+
+// Who a token belongs to: { user: { name, avatar }, account: { id } }.
+async function getAccount(token) {
+  const res = await request(`${SIMKL_API}/users/settings?${commonQuery()}`, { token });
+  if (!res.ok) throw new SimklError(`Simkl account lookup failed (${res.status})`, res.status);
+  const user = res.data?.user || {};
+  const account = res.data?.account || {};
+  const name = user.name || 'Simkl user';
+  return {
+    id: String(account.id || name),
     name: String(name),
     avatar: user.avatar ? posterUrl(user.avatar) : null,
-    siteUrl: user.username ? `https://simkl.com/${user.username}` : 'https://simkl.com',
+    siteUrl: 'https://simkl.com',
   };
 }
 
@@ -256,5 +280,6 @@ module.exports = {
   latestWatch,
   startDeviceLogin,
   pollDeviceLogin,
+  refreshLogin,
   getAccount,
 };
