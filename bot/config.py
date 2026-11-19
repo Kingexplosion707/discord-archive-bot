@@ -69,6 +69,7 @@ class Config:
     web_port: int
     start_fresh: bool = False
     tunnel_token: str = ""
+    tvtracker_dir: Path = Path("/app/tvtracker")
 
     @classmethod
     def from_env(
@@ -105,6 +106,7 @@ class Config:
             scan_nsfw=_bool(env, "SCAN_NSFW_CHANNELS", False),
             start_fresh=_bool(env, "START_FRESH", False),
             tunnel_token=_text(env, "TUNNEL_TOKEN", ""),
+            tvtracker_dir=Path(_text(env, "TVTRACKER_DIR", "/app/tvtracker")),
             sync_hour=sync_hour,
             sync_minute=sync_minute,
             timezone=zone,
