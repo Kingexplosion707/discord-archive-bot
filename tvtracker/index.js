@@ -365,6 +365,27 @@ async function fetchTitle(key) {
   return title;
 }
 
+// A working Simkl token for someone. Simkl sign-ins last about 7 days, so this
+// renews them a day early (or right away with force, after a 401).
+const RENEW_EARLY_MS = 24 * 60 * 60 * 1000;
+async function freshToken(data, discordId, { force = false } = {}) {
+  const account = data.linkedAccounts[discordId];
+  if (!account?.token) return null;
+  const dueSoon = account.expiresAt && Date.now() > account.expiresAt - RENEW_EARLY_MS;
+  if (!account.refreshToken || (!force && !dueSoon)) return account.token;
+  try {
+    const renewed = await simkl.refreshLogin(account.refreshToken);
+    account.token = renewed.token;
+    account.refreshToken = renewed.refreshToken;
+    account.expiresAt = renewed.expiresIn ? Date.now() + renewed.expiresIn * 1000 : null;
+    await saveData(data);
+    console.log(`Renewed ${account.name}'s Simkl sign-in.`);
+  } catch (e) {
+    console.warn(`Couldn't renew ${account.name}'s Simkl sign-in: ${e.message}`);
+  }
+  return account.token;
+}
+
 // Everything a signed-in person has watched, movies and shows together.
 async function loadLibrary(token) {
   const [movies, shows] = await Promise.all([simkl.getWatched(token, 'movie'), simkl.getWatched(token, 'show')]);
@@ -598,7 +619,7 @@ async function handleTrack(interaction, data, guildData) {
   // Start from their current history, so only what they watch from now on posts.
   let baseline = null;
   try {
-    const library = await loadLibrary(account.token);
+    const library = await loadLibrary(await freshToken(data, target.id));
     baseline = simkl.latestWatch(library) || new Date().toISOString();
   } catch (e) {
     console.error('Simkl lookup failed in /track:', e.message);
@@ -969,11 +990,20 @@ function watchDeviceLogin(interaction, login) {
         await finish(new EmbedBuilder().setColor(0xfb7185).setTitle('⌛ Code expired').setDescription('Run `/signin` again to get a new code.'));
         return;
       }
-      // Approved: find out whose account it is and save it.
-      const account = await simkl.getAccount(result.token);
+      // Approved: save it first, then find out whose account it is. A failed
+      // name lookup must never lose a sign-in that already worked.
+      let account;
+      try {
+        account = await simkl.getAccount(result.token);
+      } catch (e) {
+        console.error('Simkl account lookup failed after sign-in:', e.message);
+        account = { id: null, name: interaction.user.username, avatar: null, siteUrl: 'https://simkl.com' };
+      }
       const data = await loadData();
       data.linkedAccounts[discordId] = {
         token: result.token,
+        refreshToken: result.refreshToken,
+        expiresAt: result.expiresIn ? Date.now() + result.expiresIn * 1000 : null,
         simklId: account.id,
         name: account.name,
         avatar: account.avatar,
@@ -1509,12 +1539,13 @@ async function pollOnce() {
       warnedUnlinked.delete(user.discordId);
 
       try {
-        const cached = await libraryFor(user.discordId, account.token);
+        const token = await freshToken(data, user.discordId);
+        const cached = await libraryFor(user.discordId, token);
         const activity = cached.activity;
         // Nothing changed on Simkl since last time: skip the heavier library lookup.
         if (user.stamps && user.stamps.movies === activity.movies && user.stamps.shows === activity.shows) continue;
 
-        if (!cached.library) cached.library = await loadLibrary(account.token);
+        if (!cached.library) cached.library = await loadLibrary(token);
         const library = cached.library;
 
         if (!user.watchedAt) user.watchedAt = simkl.latestWatch(library) || new Date().toISOString();
@@ -1551,7 +1582,12 @@ async function pollOnce() {
         changed = true;
       } catch (e) {
         if (e.status === 401) {
-          console.warn(`Simkl rejected ${user.name}'s sign-in. They need /signin again.`);
+          // Try renewing now; the next poll uses the new sign-in if it worked.
+          const before = account.token;
+          await freshToken(data, user.discordId, { force: true });
+          if (data.linkedAccounts[user.discordId]?.token === before) {
+            console.warn(`Simkl rejected ${user.name}'s sign-in. They need /signin again.`);
+          }
         } else {
           console.error(`Failed polling ${user.name}:`, e.message);
         }

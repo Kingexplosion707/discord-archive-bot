@@ -42,7 +42,7 @@ test('device login maps Simkl answers to states', async () => {
     { status: 400, body: { error: 'authorization_pending' } },
     { status: 400, body: { error: 'slow_down' } },
     { status: 400, body: { error: 'access_denied' } },
-    { status: 200, body: { access_token: 'tok-123' } },
+    { status: 200, body: { access_token: 'tok-123', refresh_token: 'ref-1', expires_in: 604800 } },
   ];
   global.fetch = async () => {
     const a = answers.shift();
@@ -55,6 +55,8 @@ test('device login maps Simkl answers to states', async () => {
     const done = await simkl.pollDeviceLogin('dev');
     assert.equal(done.state, 'done');
     assert.equal(done.token, 'tok-123');
+    assert.equal(done.refreshToken, 'ref-1');
+    assert.equal(done.expiresIn, 604800);
   } finally {
     global.fetch = realFetch;
   }
@@ -65,6 +67,49 @@ test('a 401 on the library surfaces its status for the caller', async () => {
   global.fetch = async () => new Response('{}', { status: 401, headers: { 'content-type': 'application/json' } });
   try {
     await assert.rejects(simkl.getWatched('old-token', 'movie'), (err) => err.status === 401);
+  } finally {
+    global.fetch = realFetch;
+  }
+});
+
+test('the account lookup is a GET and reads user.name and account.id', async () => {
+  const realFetch = global.fetch;
+  let seen;
+  global.fetch = async (url, options) => {
+    seen = { url: String(url), method: options.method, auth: options.headers.Authorization };
+    const body = { user: { name: 'king', avatar: 'https://simkl.in/avatars/k.jpg' }, account: { id: 42 } };
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const account = await simkl.getAccount('tok');
+    assert.equal(seen.method, 'GET');
+    assert.equal(seen.auth, 'Bearer tok');
+    assert.match(seen.url, /\/users\/settings\?/);
+    assert.match(seen.url, /app-name=tvtracker/);
+    assert.deepEqual([account.name, account.id, account.avatar], ['king', '42', 'https://simkl.in/avatars/k.jpg']);
+  } finally {
+    global.fetch = realFetch;
+  }
+});
+
+test('renewing a sign-in keeps the old renewal token when Simkl sends none', async () => {
+  const realFetch = global.fetch;
+  const answers = [
+    { status: 200, body: { access_token: 'new-tok', expires_in: 604800 } },
+    { status: 400, body: { error: 'invalid_grant' } },
+  ];
+  let form;
+  global.fetch = async (url, options) => {
+    form = new URLSearchParams(options.body);
+    const a = answers.shift();
+    return new Response(JSON.stringify(a.body), { status: a.status, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const renewed = await simkl.refreshLogin('ref-1');
+    assert.equal(form.get('grant_type'), 'refresh_token');
+    assert.equal(form.get('refresh_token'), 'ref-1');
+    assert.deepEqual([renewed.token, renewed.refreshToken], ['new-tok', 'ref-1']);
+    await assert.rejects(simkl.refreshLogin('dead'), (err) => err.status === 400);
   } finally {
     global.fetch = realFetch;
   }
