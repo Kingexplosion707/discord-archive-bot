@@ -298,12 +298,21 @@ function isOptedOut(data, discordId) {
   return Boolean(data.trackingOptOut[discordId]);
 }
 
-function missingChannelPerms(channel) {
-  if (!channel?.guild) return [];
-  const me = channel.guild.members.me;
+function missingWith(channel, me) {
   const perms = me ? channel.permissionsFor(me) : null;
   if (!perms) return REQUIRED_CHANNEL_PERMS.map(([name]) => name);
   return REQUIRED_CHANNEL_PERMS.filter(([, flag]) => !perms.has(flag)).map(([name]) => name);
+}
+
+// The bot doesn't get updates about its own roles (that needs a privileged
+// intent), so a role given after it started isn't in its cache. When something
+// looks missing, fetch the bot's current roles and check again.
+async function missingChannelPerms(channel) {
+  if (!channel?.guild) return [];
+  const missing = missingWith(channel, channel.guild.members.me);
+  if (!missing.length) return missing;
+  const fresh = await channel.guild.members.fetchMe({ force: true }).catch(() => null);
+  return fresh ? missingWith(channel, fresh) : missing;
 }
 
 function prettyPerm(name) {
@@ -378,7 +387,7 @@ async function notifyRelaunch() {
       const guild = client.guilds.cache.get(guildId);
       if (!guild) continue;
       const channel = await client.channels.fetch(guildData.channelId).catch(() => null);
-      if (!channel || missingChannelPerms(channel).length) continue;
+      if (!channel || (await missingChannelPerms(channel)).length) continue;
       const roles = await guild.roles.fetch().catch(() => null);
       const role = roles?.find((r) => r.name.toLowerCase() === PING_ROLE_NAME);
       if (!role) continue;
@@ -399,7 +408,7 @@ client.on(Events.GuildCreate, async (guild) => {
   try {
     console.log(`Joined server: ${guild.name} (${guild.id})`);
     const channel = guild.systemChannel;
-    if (!channel || missingChannelPerms(channel).length) return;
+    if (!channel || (await missingChannelPerms(channel)).length) return;
     const embed = new EmbedBuilder()
       .setColor(DEFAULT_COLOR)
       .setTitle('📺 Thanks for adding TV Tracker!')
@@ -617,7 +626,7 @@ async function handleTrack(interaction, data, guildData) {
 
   const lines = [`✅ Now tracking **${account.name}**. New watches will post in <#${guildData.channelId}> and quietly ping <@${interaction.user.id}>.`];
   const channel = await client.channels.fetch(guildData.channelId).catch(() => null);
-  const missing = missingChannelPerms(channel);
+  const missing = await missingChannelPerms(channel);
   if (missing.length) {
     lines.push(`\n⚠️ I can’t post in <#${guildData.channelId}> yet. I’m missing **${missing.map(prettyPerm).join(', ')}** there. Fix my permissions or use \`/setchannel\`.`);
   }
@@ -706,7 +715,7 @@ async function handleSetChannel(interaction, data, guildData) {
     await respond(interaction, { content: 'Pick a regular text channel.', flags: EPHEMERAL });
     return;
   }
-  const missing = missingChannelPerms(channel);
+  const missing = await missingChannelPerms(channel);
   if (missing.length) {
     await respond(interaction, {
       content: `⚠️ I can’t post in <#${channel.id}>. I’m missing **${missing.map(prettyPerm).join(', ')}** there. Give me those and run this again.`,
@@ -1144,7 +1153,7 @@ async function handleUpdate(interaction, guildData) {
     await respond(interaction, { content: 'Pick a text channel to post in.', flags: EPHEMERAL });
     return;
   }
-  const missing = missingChannelPerms(channel);
+  const missing = await missingChannelPerms(channel);
   if (missing.length) {
     await respond(interaction, { content: `I can’t post in <#${channel.id}>. I’m missing **${missing.map(prettyPerm).join(', ')}**.`, flags: EPHEMERAL });
     return;
@@ -1477,7 +1486,7 @@ async function pollOnce() {
 
     const channel = await client.channels.fetch(guildData.channelId).catch(() => null);
     if (!channel) continue;
-    const missing = missingChannelPerms(channel);
+    const missing = await missingChannelPerms(channel);
     if (missing.length) {
       if (!warnedChannels.has(channel.id)) {
         warnedChannels.add(channel.id);
