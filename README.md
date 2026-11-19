@@ -95,12 +95,13 @@ Moving from a machine that's already running the bot instead? `sh move-to-oracle
 
 Updating: `docker compose build && docker compose up -d` (with `sudo` on Oracle). Your data is kept in the `bot-data` Docker volume.
 
-## TV Tracker (optional)
+## TV Tracker (movies and TV)
 
-A second bot, forked from AniTracker and changed to track movies and TV through Simkl, runs beside this one.
+TV Tracker is a second Discord bot, forked from AniTracker and changed to track movies and TV through Simkl. The archive bot runs it for you in the same container. Its code is in `tvtracker/`.
 
-1. Create a Discord application for it, invite it to your server, and copy its token and Client ID.
-2. On the server: `cp tvtracker.env.example tvtracker.env`, fill it in (token, Client ID, `SIMKL_CLIENT_ID`, dashboard password and secret), then `chmod 600 tvtracker.env`.
-3. Add `tv` to `COMPOSE_PROFILES` in `.env`, then run `docker compose up -d --build`.
+1. Create a Discord application for it at https://discord.com/developers/applications, open **Bot**, and press **Reset Token**.
+2. Get a Simkl Client ID at https://simkl.com/settings/developer (allow device sign-in for the app).
+3. In your server, run `/archive tvtracker` and paste both. The reply has a button to add TV Tracker to the server.
+4. `/archive status` shows whether it's online.
 
-Without the `tv` profile, the service doesn't start, and the archive bot is unaffected.
+To change the Simkl ID later, run `/archive tvtracker` again and leave the token empty. Type `off` in the token box to turn it off. Settings are stored encrypted, and TV Tracker never sees the archive bot's own token or keys.

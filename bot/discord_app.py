@@ -23,6 +23,8 @@ from .meta import CINEMETA, KITSU, MetaClient
 from .tracker import TitleButton, Tracker, TrackerGroup, VoteButton, WatchGroup
 from .web import build_app
 from .tunnel import Tunnel
+from .tvtracker import SETTINGS_KEY as TV_SETTINGS_KEY
+from .tvtracker import TvTracker, TvTrackerError, new_settings, seal_settings, unseal_settings
 from .lists import ListGroup
 from .stremio_progress import STREMIO_API, StremioProgress
 from .pipeline import AttachmentGone, Pipeline, TemporaryProblem
@@ -94,11 +96,80 @@ class ArchiveGroup(app_commands.Group):
             ephemeral=True,
         )
 
+    @app_commands.command(name="tvtracker", description="Set up the TV Tracker bot (movies and TV) that runs beside this one")
+    async def tvtracker(self, interaction: discord.Interaction) -> None:
+        if interaction.user.id != self.bot.config.owner_id:
+            await interaction.response.send_message("Only the bot owner can do that.", ephemeral=True)
+            return
+        await interaction.response.send_modal(TvTrackerModal(self.bot))
+
     @app_commands.command(name="status", description="Show upload progress")
     async def status(self, interaction: discord.Interaction) -> None:
         await interaction.response.send_message(
             await self.bot.status_text(interaction.user.id), ephemeral=True
         )
+
+
+TV_INVITE_PERMISSIONS = 274878286912  # View, send, embed, attach, history, reactions, external emoji.
+
+
+class TvTrackerModal(discord.ui.Modal, title="Set up TV Tracker"):
+    token: discord.ui.TextInput = discord.ui.TextInput(
+        label="TV Tracker bot token",
+        placeholder="Developer Portal > your TV Tracker app > Bot > Reset Token",
+        required=False,
+        max_length=200,
+    )
+    simkl: discord.ui.TextInput = discord.ui.TextInput(
+        label="Simkl Client ID",
+        placeholder="simkl.com/settings/developer > your app",
+        required=False,
+        max_length=200,
+    )
+
+    def __init__(self, bot: "ArchiveClient") -> None:
+        super().__init__()
+        self.bot = bot
+        current = bot.tvtracker.settings if bot.tvtracker else None
+        if current:
+            self.token.placeholder = "Leave empty to keep the current token, or type off to turn it off"
+            self.simkl.default = current.get("simkl_client_id", "")
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        bot = self.bot
+        tracker = bot.tvtracker
+        typed = str(self.token.value).strip()
+        current = tracker.settings
+        if typed.lower() == "off":
+            await bot.store.kv_set(TV_SETTINGS_KEY, "")
+            tracker.configure(None)
+            await interaction.response.send_message("TV Tracker is off.", ephemeral=True)
+            return
+        if not typed and not current:
+            await interaction.response.send_message(
+                "Paste the TV Tracker bot token to set it up.", ephemeral=True
+            )
+            return
+        try:
+            settings = new_settings(typed or current["token"], str(self.simkl.value), current)
+        except TvTrackerError as exc:
+            await interaction.response.send_message(str(exc), ephemeral=True)
+            return
+        await bot.store.kv_set(TV_SETTINGS_KEY, seal_settings(bot.vault, settings))
+        tracker.configure(settings)
+        if not tracker.running:
+            bot._spawn(tracker.run())
+        invite = (
+            f"https://discord.com/oauth2/authorize?client_id={settings['client_id']}"
+            f"&permissions={TV_INVITE_PERMISSIONS}&integration_type=0&scope=bot+applications.commands"
+        )
+        lines = ["Saved. TV Tracker is starting. Check `/archive status` in a minute."]
+        if not settings["simkl_client_id"]:
+            lines.append("It has no Simkl Client ID yet, so `/signin`, `/track` and `/find` won't work until you add one.")
+        lines.append("If it isn't in this server yet, add it with the button below.")
+        view = discord.ui.View()
+        view.add_item(discord.ui.Button(label="Add TV Tracker to a server", url=invite, style=discord.ButtonStyle.link))
+        await interaction.response.send_message("\n".join(lines), view=view, ephemeral=True)
 
 
 class GoogleLoginView(discord.ui.View):
@@ -191,6 +262,7 @@ class ArchiveClient(discord.Client):
         self._background: set[asyncio.Task[Any]] = set()
         self._pipeline_task: asyncio.Task[None] | None = None
         self.tunnel: Tunnel | None = None
+        self.tvtracker: TvTracker | None = None
 
     async def setup_hook(self) -> None:
         self.config = config = await fill_in_ids(self, self.config)
@@ -222,6 +294,10 @@ class ArchiveClient(discord.Client):
         self.tunnel = Tunnel(await self.store.kv_get(TUNNEL_TOKEN_KEY) or config.tunnel_token)
         if self.tunnel.enabled:
             self._spawn(self.tunnel.run())
+        self.tvtracker = TvTracker(config.data_dir, config.tvtracker_dir)
+        self.tvtracker.configure(unseal_settings(self.vault, await self.store.kv_get(TV_SETTINGS_KEY)))
+        if self.tvtracker.enabled:
+            self._spawn(self.tvtracker.run())
 
         guild = discord.Object(id=config.guild_id)
         self.tree.add_command(ArchiveGroup(self), guild=guild)
@@ -284,6 +360,8 @@ class ArchiveClient(discord.Client):
     async def close(self) -> None:
         if self.tunnel is not None:
             self.tunnel.stop()
+        if self.tvtracker is not None:
+            self.tvtracker.stop()
         if self.pipeline is not None:
             self.pipeline.stop()
         tasks = list(self._background)
@@ -398,4 +476,6 @@ class ArchiveClient(discord.Client):
                 lines.append(f"**Channels I can't read:** {', '.join(unreadable[:20])}")
             if self.config.public_url:
                 lines.append(f"**Web address ({self.config.public_url}):** {self.tunnel.status()}")
+            if self.tvtracker is not None:
+                lines.append(f"**TV Tracker:** {self.tvtracker.status()}")
         return "\n".join(lines)
