@@ -23,6 +23,10 @@ log = logging.getLogger(__name__)
 
 SETTINGS_KEY = "tvtracker_settings"
 WEB_PORT = 3001
+# Picture routes TV Tracker serves (banners, leaderboards, recaps). The archive
+# bot passes these through at <PUBLIC_URL>/tv/... so Discord can fetch them.
+IMAGE_PREFIXES = ("banner", "header", "bar", "collage", "ring", "art")
+MEMORY_LIMIT_MB = 320  # the free server has 1 GB shared with the archive bot
 READY_LINE = "Logged in as"
 
 
@@ -61,8 +65,9 @@ def new_settings(token: str, simkl_client_id: str, previous: dict[str, str] | No
 
 
 class TvTracker:
-    def __init__(self, data_dir: Path, app_dir: Path, binary: str = "node") -> None:
+    def __init__(self, data_dir: Path, app_dir: Path, binary: str = "node", public_url: str = "") -> None:
         self._data_dir = data_dir
+        self._public_url = public_url.rstrip("/")
         self._app_dir = app_dir
         self._binary = binary
         self._settings: dict[str, str] | None = None
@@ -123,6 +128,9 @@ class TvTracker:
             "DASHBOARD_SESSION_SECRET": self._settings["session_secret"],
             "PORT": str(WEB_PORT),
             "TV_DATA_FILE": str(data_file),
+            "NODE_OPTIONS": f"--max-old-space-size={MEMORY_LIMIT_MB}",
+            # Where Discord fetches TV Tracker's pictures (through the archive bot).
+            "PUBLIC_URL": f"{self._public_url}/tv" if self._public_url else "",
         }
 
     async def run(self) -> None:

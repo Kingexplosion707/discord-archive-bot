@@ -14,7 +14,8 @@ test('anime is skipped and movies and shows are normalized', () => {
   assert.equal(movie.key, 'movie_77');
   assert.equal(movie.kind, 'movie');
   assert.equal(movie.siteUrl, 'https://simkl.com/movies/77/dune-2021');
-  assert.equal(movie.poster, 'https://simkl.in/posters/abc_m.jpg');
+  assert.equal(movie.poster, 'https://wsrv.nl/?url=simkl.in/posters/abc_m.webp&output=jpg&q=88');
+  assert.equal(simkl.fanartUrl('f1'), 'https://wsrv.nl/?url=simkl.in/fanart/f1_mobile.webp&output=jpg&q=88');
   assert.equal(movie.rating, 8.1);
 
   const show = simkl.normalizeTitle({ title: 'Severance', endpoint_type: 'tv', ids: { simkl_id: 9 } });
