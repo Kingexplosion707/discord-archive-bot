@@ -13,7 +13,10 @@
 
 const SIMKL_API = 'https://api.simkl.com';
 const SIMKL_SEARCH = 'https://api.simkl.org';
-const POSTER_BASE = 'https://simkl.in/posters';
+const SIMKL_DATA = 'https://data.simkl.in'; // pre-built trending lists
+// Simkl serves .webp images and recommends the wsrv.nl image proxy. Asking the
+// proxy for JPG keeps them readable by Jimp (embed colours, painted banners).
+const IMAGE_PROXY = 'https://wsrv.nl/?url=simkl.in';
 const REQUEST_TIMEOUT_MS = 12000;
 const APP_NAME = 'tvtracker'; // Simkl asks for a short lowercase app name.
 const APP_VERSION = '1.0.0';
@@ -81,10 +84,26 @@ async function request(url, { method = 'GET', token, form, json, retryOn429 = tr
   return { status: res.status, ok: res.ok, data };
 }
 
-function posterUrl(poster) {
-  if (!poster) return null;
-  if (/^https?:\/\//.test(poster)) return poster;
-  return `${POSTER_BASE}/${poster}_m.jpg`;
+function imageUrl(folder, path, size) {
+  if (!path) return null;
+  if (/^https?:\/\//.test(path)) return path;
+  return `${IMAGE_PROXY}/${folder}/${path}${size}.webp&output=jpg&q=88`;
+}
+
+// Poster sizes: _m 340 wide (default), _ca 190 wide, _cm 84 wide.
+function posterUrl(poster, size = '_m') {
+  return imageUrl('posters', poster, size);
+}
+
+// Backdrop sizes: _mobile 960x540 (default), _w 600x338, _medium 1920x1080.
+function fanartUrl(fanart, size = '_mobile') {
+  return imageUrl('fanart', fanart, size);
+}
+
+function trailersOf(raw) {
+  return (Array.isArray(raw.trailers) ? raw.trailers : [])
+    .map((t) => ({ name: t.name || 'Trailer', youtube: t.youtube || t.youtube_id || null }))
+    .filter((t) => t.youtube);
 }
 
 // Movies and shows keep their Simkl type under endpoint_type ("movies", "tv",
@@ -106,23 +125,31 @@ function normalizeTitle(raw, forcedKind = null) {
   const kind = forcedKind || kindOf(raw);
   if (!kind) return null;
   const ids = raw.ids || {};
-  const id = ids.simkl_id ?? ids.simkl ?? raw.id;
+  // Trending lists give a site path ("/movies/123/dune") instead of ids.
+  const fromUrl = String(raw.url || '').match(/^\/(?:movies|tv|anime)\/(\d+)(?:\/([^/?#]+))?/);
+  const id = ids.simkl_id ?? ids.simkl ?? raw.id ?? (fromUrl ? Number(fromUrl[1]) : null);
   if (!id) return null;
-  const slug = ids.slug || String(id);
+  const slug = ids.slug || (fromUrl && fromUrl[2]) || String(id);
+  const released = String(raw.release_date || '').match(/(\d{4})$/);
   return {
     key: `${kind}_${id}`,
     kind,
     id: Number(id),
     title: raw.title || 'Untitled',
-    year: raw.year || null,
+    year: raw.year || (released ? Number(released[1]) : null),
     poster: posterUrl(raw.poster),
+    posterSmall: posterUrl(raw.poster, '_ca'),
+    fanart: fanartUrl(raw.fanart),
     siteUrl: `https://simkl.com/${kind === 'movie' ? 'movies' : 'tv'}/${id}/${slug}`,
     imdb: ids.imdb || null,
     rating: simklRating(raw.ratings),
     overview: raw.overview || null,
     genres: Array.isArray(raw.genres) ? raw.genres : [],
     status: raw.status || null,
-    episodes: raw.ep_count ?? raw.total_episodes_count ?? null,
+    episodes: raw.ep_count ?? raw.total_episodes ?? raw.total_episodes_count ?? null,
+    runtime: Number(raw.runtime) || null,
+    network: raw.network || null,
+    trailers: trailersOf(raw),
   };
 }
 
@@ -165,15 +192,31 @@ async function getWatched(token, kind) {
     const raw = entry.movie || entry.show || entry;
     const title = normalizeTitle(raw, kind);
     if (!title) continue;
-    const watchedAt = entry.last_watched_at || entry.last_watched || null;
+    // last_watched is the episode code ("S02E05"); last_watched_at is the time.
+    const watchedAt = entry.last_watched_at || null;
+    const episodeCode = /^S\d+E\d+$/i.test(entry.last_watched || '') ? entry.last_watched.toUpperCase() : null;
     items.push({
       ...title,
       watchedAt,
       watchedEpisodes: entry.watched_episodes_count ?? null,
       totalEpisodes: entry.total_episodes_count ?? title.episodes,
+      listStatus: entry.status || null, // watching, plantowatch, hold, completed, dropped
+      addedAt: entry.added_to_watchlist_at || null,
+      lastEpisode: episodeCode,
+      userRating: typeof entry.user_rating === 'number' ? entry.user_rating : null,
     });
   }
   return items;
+}
+
+// Simkl's ready-made trending lists. kind: 'movie' or 'show'; period: today, week, month.
+async function getTrending(kind, period = 'week', size = 100) {
+  const folder = kind === 'movie' ? 'movies' : 'tv';
+  const file = `${period}_${size >= 500 ? 500 : 100}.json`;
+  const res = await request(`${SIMKL_DATA}/discover/trending/${folder}/${file}?${commonQuery()}`);
+  if (!res.ok) throw new SimklError(`Simkl trending failed (${res.status})`, res.status);
+  const list = Array.isArray(res.data) ? res.data : [];
+  return list.map((raw) => normalizeTitle(raw, kind)).filter(Boolean);
 }
 
 // Pure: pick the watches newer than `sinceIso`, oldest first. The first run
@@ -271,11 +314,13 @@ module.exports = {
   SimklError,
   isConfigured,
   posterUrl,
+  fanartUrl,
   normalizeTitle,
   searchTitles,
   getDetails,
   getActivities,
   getWatched,
+  getTrending,
   newWatches,
   latestWatch,
   startDeviceLogin,

@@ -97,7 +97,11 @@ Updating: `docker compose build && docker compose up -d` (with `sudo` on Oracle)
 
 ## TV Tracker (movies and TV)
 
-TV Tracker is a second Discord bot, forked from AniTracker and changed to track movies and TV through Simkl. The archive bot runs it for you in the same container. Its code is in `tvtracker/`.
+TV Tracker is a second Discord bot, built from [AniTracker](https://github.com/sxpehr/AniTracker) and changed to track movies and TV through Simkl. The archive bot runs it for you in the same container. Its code is in `tvtracker/`.
+
+It has AniTracker's features, for movies and shows: watch posts with progress, profiles (`/profile`, `/settings`), lists and collections, reviews and ratings, `/stats`, `/recap`, `/leaderboard`, weekly and monthly server recaps, `/watched`, `/find` (info, search, trending, random) and an admin panel (`/serversettings`). Simkl only shares a watch history with its owner's sign-in, so people are tracked after they run `/signin`. `catalog.js` and `features/media.js` are where Simkl stands in for AniList; the rest follows AniTracker, so its updates can be brought over.
+
+Banners, leaderboards and recaps are pictures TV Tracker draws; the archive bot passes them through at `PUBLIC_URL/tv/…` so Discord can show them.
 
 1. Create a Discord application for it at https://discord.com/developers/applications, open **Bot**, and press **Reset Token**.
 2. Get a Simkl Client ID at https://simkl.com/settings/developer (allow device sign-in for the app).

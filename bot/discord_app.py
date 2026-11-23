@@ -294,7 +294,7 @@ class ArchiveClient(discord.Client):
         self.tunnel = Tunnel(await self.store.kv_get(TUNNEL_TOKEN_KEY) or config.tunnel_token)
         if self.tunnel.enabled:
             self._spawn(self.tunnel.run())
-        self.tvtracker = TvTracker(config.data_dir, config.tvtracker_dir)
+        self.tvtracker = TvTracker(config.data_dir, config.tvtracker_dir, public_url=config.public_url)
         self.tvtracker.configure(unseal_settings(self.vault, await self.store.kv_get(TV_SETTINGS_KEY)))
         if self.tvtracker.enabled:
             self._spawn(self.tvtracker.run())

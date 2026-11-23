@@ -1,4 +1,4 @@
-"""The bot's small web server: the personal Stremio addons and the word-by-word lyrics page."""
+"""The bot's small web server: Stremio addons, the word-by-word lyrics page, and TV Tracker's pictures."""
 from __future__ import annotations
 
 import html
@@ -7,7 +7,10 @@ import logging
 from typing import TYPE_CHECKING
 from urllib.parse import quote, unquote
 
+import aiohttp
 from aiohttp import web
+
+from .tvtracker import IMAGE_PREFIXES, WEB_PORT as TV_WEB_PORT
 
 if TYPE_CHECKING:
     from .discord_app import ArchiveClient
@@ -87,7 +90,26 @@ def build_app(client: "ArchiveClient") -> web.Application:
         state = client.lyrics.state(request.match_info["token"])
         return _json(state if state is not None else {"ended": True}, status=200 if state else 404)
 
+    async def tv_image(request: web.Request) -> web.Response:
+        # TV Tracker draws profile banners, leaderboards and recaps as pictures
+        # that Discord fetches by URL. Only those picture routes pass through.
+        prefix = request.match_info["prefix"]
+        tail = request.match_info["tail"]
+        if prefix not in IMAGE_PREFIXES or ".." in tail or not all(c.isalnum() or c in "-_./" for c in tail):
+            raise web.HTTPNotFound()
+        url = f"http://127.0.0.1:{TV_WEB_PORT}/{prefix}/{tail}"
+        if request.query_string:
+            url += f"?{request.query_string}"
+        try:
+            async with client.web.get(url, timeout=aiohttp.ClientTimeout(total=45)) as upstream:
+                body = await upstream.read()
+                headers = {k: v for k in ("Content-Type", "Cache-Control") if (v := upstream.headers.get(k))}
+                return web.Response(status=upstream.status, body=body, headers=headers)
+        except (aiohttp.ClientError, TimeoutError):
+            return web.Response(status=502, text="TV Tracker isn't running")
+
     app.router.add_get("/", health)
+    app.router.add_get("/tv/{prefix}/{tail:.*}", tv_image)
     app.router.add_get("/stremio/{token}/{tail:.*}", stremio)
     app.router.add_get("/lyrics/{token}", lyrics_page)
     app.router.add_get("/lyrics/{token}/state", lyrics_state)

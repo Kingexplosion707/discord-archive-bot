@@ -125,3 +125,51 @@ async def test_owner_sets_it_up_from_discord(
     assert "TV Tracker is off" in harness.reply_text(off)
     await until(lambda: not client.tvtracker.running, 10, "TV Tracker to stop")
     assert "TV Tracker:** off" in await client.status_text(OWNER_ID)
+
+
+async def test_pictures_pass_through_the_public_address(
+    harness: Harness, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Discord fetches TV Tracker's banners and leaderboards from <PUBLIC_URL>/tv/..."""
+    from aiohttp import ClientSession, web
+
+    from bot.tvtracker import WEB_PORT
+
+    seen: list[str] = []
+
+    async def picture(request: web.Request) -> web.Response:
+        seen.append(request.path_qs)
+        return web.Response(body=b"\x89PNG fake", content_type="image/png", headers={"Cache-Control": "max-age=60"})
+
+    async def dashboard(_: web.Request) -> web.Response:
+        return web.Response(text="secret dashboard")
+
+    fake_tv = web.Application()
+    fake_tv.router.add_get("/art/v1/{tail:.*}", picture)
+    fake_tv.router.add_get("/dashboard/{tail:.*}", dashboard)
+    runner = web.AppRunner(fake_tv)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", WEB_PORT)
+    await site.start()
+    try:
+        client = await harness.start()
+        base = client.config.public_url
+        async with ClientSession() as session:
+            async with session.get(f"{base}/tv/art/v1/lb/1000/streak.png?v=2") as response:
+                assert response.status == 200
+                assert response.headers["Content-Type"] == "image/png"
+                assert response.headers["Cache-Control"] == "max-age=60"
+                assert await response.read() == b"\x89PNG fake"
+            for blocked in ("/tv/dashboard/x", "/tv/art/../dashboard/x", "/tv/art/v1/a%20b"):
+                async with session.get(f"{base}{blocked}") as response:
+                    assert response.status == 404, blocked
+        assert seen == ["/art/v1/lb/1000/streak.png?v=2"]
+
+        bin_dir, _ = fake_node(tmp_path)
+        tracker = TvTracker(tmp_path / "data", tmp_path / "tvtracker", public_url=base + "/")
+        tracker.configure(new_settings(TOKEN, "simkl-1"))
+        env = tracker.environment()
+        assert env["PUBLIC_URL"] == f"{base}/tv"
+        assert env["NODE_OPTIONS"].startswith("--max-old-space-size=")
+    finally:
+        await runner.cleanup()

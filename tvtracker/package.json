@@ -1,21 +1,22 @@
 {
   "name": "tv-tracker-discord-bot",
   "version": "1.0.0",
-  "description": "Discord bot that posts movie and TV watch activity from Simkl",
+  "description": "Discord bot that posts movie and TV watch activity from Simkl, with profiles, stats, recaps and leaderboards",
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
     "start": "node index.js",
-    "deploy-commands": "node deploy-commands.js",
-    "check": "node --check changelog.js && node --check commands.js && node --check index.js && node --check storage.js && node --check simkl.js && node --check moreInfo.js && node --check feedback.js && node --check dashboard/routes.js && node --test tests/*.test.js",
+    "check": "for f in *.js features/*.js dashboard/*.js; do node --check \"$f\" || exit 1; done && node --test tests/*.test.js",
     "test": "node --test tests/*.test.js"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^1.2.0",
     "@upstash/redis": "^1.38.2",
     "discord.js": "^14.27.0",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "jimp": "^0.22.12"
+    "jimp": "^0.22.12",
+    "omggif": "^1.0.10"
   },
   "engines": {
     "node": ">=18.17"
