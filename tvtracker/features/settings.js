@@ -26,12 +26,13 @@ const statsUi = require('./statsUi');
  * ids: s:open · s:cat · s:theme · s:banner · s:sections · s:layout · s:feat
  *      s:style · s:color · s:show · s:auto · s:vis · s:hide · s:tz · s:recap
  *      s:spoil · s:lb · s:save · s:discard · s:preview · s:postpreview
- *      s:edit:<text|color|bannerurl|featnote|opmanual> · s:op:<mediaId>
+ *      s:edit:<text|color|bannerurl|featnote|opmanual> · s:op|ed:<mediaId> ·
+ *      s:picksong:<OP|ED> · s:songrm:<OP|ED> · s:favborder
  * ------------------------------------------------------------------------- */
 
 const CATEGORIES = {
   look: { label: 'Appearance', emoji: '🎨', description: 'Theme, colours and banner' },
-  profile: { label: 'Profile', emoji: '👤', description: 'Name, tagline, bio, featured title, trailer' },
+  profile: { label: 'Profile', emoji: '👤', description: 'Name, tagline, bio, featured title, trailers' },
   showcase: { label: 'Showcase', emoji: '🧩', description: 'Choose what your profile shows, and the layout' },
   activity: { label: 'Activity posts', emoji: '📡', description: 'How your watch updates look in servers' },
   privacy: { label: 'Privacy', emoji: '🔒', description: 'Who can see what' },
@@ -124,6 +125,13 @@ async function panelBlocks(userId, d, interaction) {
         Object.entries(modes).map(([k, [l, e, desc]]) => ({ label: l, value: k, emoji: e, description: desc, default: (p.bannerMode || 'theme') === k }))
       )
     );
+    blocks.push(ui.text(ui.label('Favorites border')));
+    blocks.push(
+      ui.select('s:favborder', 'Favorites border colour…', [
+        { label: 'Each title’s own colour', value: 'anime', emoji: '🌈', description: 'Every card glows in its show’s colour (default)', default: (p.favBorder || 'anime') === 'anime' },
+        { label: 'My theme colour', value: 'theme', emoji: '🎨', description: `All cards in your accent ${hex(pal.accent)}`, default: p.favBorder === 'theme' },
+      ])
+    );
     if (p.bannerMode === 'url') blocks.push(rowItem('Banner image', p.bannerUrl ? `-# ${ui.esc(ui.clip(p.bannerUrl, 90))}` : '-# Paste an https image link', 's:edit:bannerurl', 'Set link', '🔗'));
     if (p.bannerMode === 'featured' && !p.featured) blocks.push(ui.text('-# ⚠️ Pick a featured title in **Profile** first — until then the theme banner is used.'));
   }
@@ -150,16 +158,24 @@ async function panelBlocks(userId, d, interaction) {
         ...(f ? [{ label: 'Remove featured title', value: '_none', emoji: '✖️' }] : []),
       ])
     );
-    const o = p.opening;
-    blocks.push(
-      rowItem(
-        'Favorite trailer',
-        o ? `-# 🎬 **${ui.esc(o.song || o.slug)}** · ${ui.esc(ui.clip(o.animeTitle, 40))}` : '-# Pick the trailer you never skip',
-        's:pickop',
-        o ? 'Change' : 'Choose',
-        '🎬'
-      )
-    );
+    // Favorite trailers: up to 3.
+    {
+      const list = social.songsOf(p, 'OP');
+      const lines = list.length
+        ? list.map((o) => `-# 🎬 **${ui.esc(o.song || o.slug)}** · ${ui.esc(ui.clip(o.animeTitle, 40))}`).join('\n')
+        : `-# Pick the trailers you never skip (up to ${social.MAX_SONGS})`;
+      const full = list.length >= social.MAX_SONGS;
+      blocks.push(rowItem(`Favorite trailers · ${list.length}/${social.MAX_SONGS}`, lines, full ? 's:songfull:OP' : 's:picksong:OP', full ? 'Full' : 'Add', '🎬'));
+      if (list.length) {
+        blocks.push(
+          ui.select(
+            's:songrm:OP',
+            'Remove a favorite trailer…',
+            list.map((o, i) => ({ label: ui.clip(o.song || o.slug || 'Trailer', 100), value: String(i), emoji: '✖️', description: ui.clip(o.animeTitle || '', 100) }))
+          )
+        );
+      }
+    }
   }
 
   if (cat === 'showcase') {
@@ -322,7 +338,10 @@ async function previewCard(userId, d) {
   } else children.push(ui.row([lines[0], lines.slice(1, -1).join('\n') || null, lines[lines.length - 1]].filter(Boolean), user?.displayAvatarURL?.({ size: 512, extension: 'png' })));
   const f = u.profile.featured;
   if (f && u.profile.sections.includes('featured')) children.push(ui.row([ui.label('Featured'), `**${ui.esc(f.title)}**`], f.cover));
-  if (u.profile.opening && u.profile.sections.includes('opening')) children.push(ui.text(`-# 🎬 ${ui.esc(u.profile.opening.song || u.profile.opening.slug)} · ${ui.esc(u.profile.opening.animeTitle)}`));
+  {
+    const list = social.songsOf(u.profile, 'OP');
+    if (list.length && u.profile.sections.includes('opening')) children.push(ui.text(list.map((o) => `-# 🎬 ${ui.esc(o.song || o.slug)} · ${ui.esc(o.animeTitle)}`).join('\n')));
+  }
   return ui.card(pal.accent, children);
 }
 
@@ -432,6 +451,15 @@ function featNoteModal(p) {
     .addLabelComponents(new LabelBuilder().setLabel('Note').setDescription('Leave empty for no note').setTextInputComponent(t));
 }
 
+// Add (or replace the same trailer) and make sure the section shows.
+function addSong(p, kind, song) {
+  const list = social.songsOf(p, kind).filter((x) => !(x.mediaId === song.mediaId && x.slug === song.slug && x.song === song.song));
+  list.push(song);
+  social.setSongs(p, kind, list);
+  const section = kind === 'ED' ? 'ending' : 'opening';
+  if (!p.sections.includes(section)) p.sections.push(section);
+}
+
 // A trailer Simkl doesn't list: a name plus a YouTube link.
 function openingManualModal(mediaId, animeTitle) {
   const song = new TextInputBuilder().setCustomId('song').setStyle(TextInputStyle.Short).setMaxLength(80).setRequired(true).setPlaceholder('e.g. Official Trailer');
@@ -516,19 +544,35 @@ async function onComponent(interaction) {
       changed(d);
       break;
     }
-    case 'pickop':
+    case 'favborder':
+      p.favBorder = v[0] === 'theme' ? 'theme' : 'anime';
+      changed(d);
+      break;
+    case 'pickop': // older panels
+    case 'picksong': {
+      if (social.songsOf(p, 'OP').length >= social.MAX_SONGS) return respondPanel(interaction, `⚠️ You already have ${social.MAX_SONGS} — remove one first.`);
       return picker.openSearch(interaction, 'op', '-', { title: 'Favorite trailer — which title?' });
+    }
+    case 'songfull':
+      return respondPanel(interaction, `⚠️ That’s ${social.MAX_SONGS} already — remove one with the menu below it first.`);
+    case 'songrm': {
+      const list = social.songsOf(p, 'OP').slice();
+      list.splice(parseInt(v[0], 10), 1);
+      social.setSongs(p, 'OP', list);
+      changed(d);
+      break;
+    }
     case 'op': {
-      // s:op:<mediaId> — chose an opening from the AnimeThemes list
+      // s:op:<mediaId> — chose a trailer from the Simkl list
+      const kind = 'OP';
       const mediaId = parseInt(id.split(':')[2], 10);
       if (v[0] === '_manual') {
         const anime = d.pendingOpening?.animeTitle;
-        return interaction.showModal(openingManualModal(mediaId, anime));
+        return interaction.showModal(openingManualModal(mediaId, anime, kind));
       }
       const op = (d.pendingOpening?.list || []).find((o) => o.slug === v[0]);
       if (op) {
-        p.opening = { mediaId, animeTitle: d.pendingOpening.animeTitle, cover: d.pendingOpening.cover, ...op };
-        if (!p.sections.includes('opening')) p.sections.push('opening');
+        addSong(p, kind, { mediaId, animeTitle: d.pendingOpening.animeTitle, cover: d.pendingOpening.cover, ...op });
         changed(d);
       }
       d.pendingOpening = null;
@@ -684,7 +728,7 @@ async function onModal(interaction) {
     const mediaId = parseInt(parts[3], 10);
     const link = interaction.fields.getTextInputValue('artist').trim();
     const youtube = /^https:\/\/(www\.|m\.)?(youtube\.com|youtu\.be)\//i.test(link) ? link : null;
-    p.opening = {
+    addSong(p, 'OP', {
       mediaId,
       animeTitle: d.pendingOpening?.animeTitle || 'Title',
       cover: d.pendingOpening?.cover || null,
@@ -693,8 +737,7 @@ async function onModal(interaction) {
       artists: [],
       videoUrl: youtube,
       pageUrl: null,
-    };
-    if (!p.sections.includes('opening')) p.sections.push('opening');
+    });
     d.pendingOpening = null;
     d.cat = 'profile';
     changed(d);

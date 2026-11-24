@@ -75,7 +75,10 @@ function getRandomAnime(genre = null, retry = false, tag = null) {
 
 // Movies and shows have no anime openings: a profile's favorite "opening" is
 // a favorite trailer, from the title's Simkl trailers.
-function getOpenings(mediaId) {
+// Trailers stand in for openings. Simkl has nothing like endings, so kind
+// 'ED' always answers an empty list.
+async function getOpenings(mediaId, kind = 'OP') {
+  if (kind === 'ED') return [];
   return catalog.getTrailers(mediaId);
 }
 

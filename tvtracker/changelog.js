@@ -1,18 +1,17 @@
 // What `/update` posts when no custom message is given. Edit this list
 // whenever you ship something worth telling servers about.
 const LATEST_UPDATE = {
-  title: '✨ TV Tracker update — profiles, stats, recaps & leaderboards',
+  title: '✨ TV Tracker update — Profiles glow-up',
   items: [
-    '**🪪 /profile** — your own movie & TV page: theme, banner, featured title, favorite trailer, favorites and what you’re watching',
-    '**📺 Watch posts** — your profile picture, status, progress bar for the show, genres and a ⭐ Rate button',
-    '**🔄 In Rotation** — the shows you’re watching right now, synced from Simkl',
-    '**📊 /stats & 🎁 /recap** — hours watched, streaks and a monthly recap you can share',
-    '**🏆 /leaderboard** — server boards with pictures, plus weekly & monthly server recaps',
-    '**✍️ /review, ⭐ /rate, 🔎 /watched** — reviews, scores and who here watched what',
-    '**🔎 /find** — look up any movie or show, see what’s trending, or get a random pick',
-    '**🛡️ /serversettings** — admins pick the channel, recaps, leaderboards, auto-tracking and flood protection',
+    '**⭐ Favorites** — big banner cards with titles; borders in each title’s colour or your theme colour (/settings → Appearance)',
+    '**🎬 Favorite trailers** — pick up to 3 for your profile, shown as a card with play buttons',
+    '**🎞️ Featured title** — bigger banner, genres, and a bigger note',
+    '**🔄 In Rotation** — cleaner cards with your status under the progress',
+    '**📺 Watch posts** — your profile status as a bubble under your name, @you next to it, and the progress bar right under what you watched',
+    '**🔞 18+ covers** — now sent as a spoiler (click to reveal) by default',
+    '**📅 Recaps** — cleaner category lists',
   ],
-  footer: 'Try /profile, /find and /leaderboard · admins: /serversettings',
+  footer: 'Try /profile and /settings',
 };
 
 module.exports = { LATEST_UPDATE };
