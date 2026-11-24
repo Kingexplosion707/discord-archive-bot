@@ -29,6 +29,19 @@ const listCommand = (name, description, emoji) =>
         .addStringOption((o) => o.setName('title').setDescription('Pick from your list').setRequired(true).setAutocomplete(true))
     );
 
+const { CATEGORIES } = require('./features/categories');
+const MUTE_SCOPES = [
+  { name: 'My posts — don’t post it (still counted in my stats)', value: 'posts' },
+  { name: 'My tracking — don’t post or count it at all', value: 'track' },
+  { name: 'This server — never post it here (Manage Server)', value: 'server' },
+];
+const muteOptions = (sc) =>
+  sc
+    .addStringOption((o) =>
+      o.setName('category').setDescription('What to mute').setRequired(true).addChoices(...CATEGORIES.map((c) => ({ name: `${c.emoji} ${c.label}`, value: c.key })))
+    )
+    .addStringOption((o) => o.setName('where').setDescription('Your posts, your tracking, or this whole server').setRequired(true).addChoices(...MUTE_SCOPES));
+
 const commands = [
   base('track', 'Post a signed-in person’s movie and TV activity in this server').addUserOption((opt) =>
     opt.setName('user').setDescription('Someone who has used /signin').setRequired(true)
@@ -94,6 +107,10 @@ const commands = [
         .addBooleanOption((o) => o.setName('share').setDescription('Post it in the channel').setRequired(false))
     ),
   base('mostrecommended', 'The most-recommended movies and shows — this server or global'),
+  base('mute', 'Stop posts or tracking for a category, like anything anime')
+    .addSubcommand((sc) => muteOptions(sc.setName('add').setDescription('Mute a category')))
+    .addSubcommand((sc) => muteOptions(sc.setName('remove').setDescription('Unmute a category')))
+    .addSubcommand((sc) => sc.setName('list').setDescription('What you and this server have muted')),
   base('signin', 'Link your Simkl account so only you control your posts'),
   base('signout', 'Unlink your Simkl account from TV Tracker'),
   base('tracking', 'Turn your live watch posts on or off (everywhere)').addStringOption((opt) =>

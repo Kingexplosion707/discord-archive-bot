@@ -10,6 +10,7 @@ const DEFAULTS = {
   ping: 'quiet', // 'quiet' = silent mention of whoever tracked the profile · 'off' = no mention
   postText: true, // Simkl status posts & messages
   postManga: true, // manga / chapter updates
+  blockedCats: [], // categories never posted here (features/categories.js), e.g. ['anime']
   mature: 'blur', // 18+ titles: 'show' · 'blur' (cover hidden) · 'skip'
   burst: 3, // flood protection: separate posts per person per check; the rest are bundled into one
   // Recaps
@@ -20,8 +21,8 @@ const DEFAULTS = {
   // Members
   autoTrack: true, // people who /signin here get tracked here automatically
   trackPerm: 'everyone', // who can /track others: 'everyone' | 'managers'
-  relaunchPing: true, // ping the anime role when the bot restarts (max every 12h)
-  animeRoleId: null, // null = a role named "anime"
+  relaunchPing: true, // ping the restart role when the bot restarts (max every 12h)
+  animeRoleId: null, // null = a role named "tv"
   // Other
   nudges: true, // occasional "review us on Top.gg / send feedback" reminder
   leaderboards: null, // { board: bool } — null means defaults (see statsUi.BOARDS)

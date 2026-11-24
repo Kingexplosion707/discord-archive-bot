@@ -63,6 +63,7 @@ function lastNumber(progress) {
 // Where they are in THIS season: { done, total, pct, next }
 function seasonProgress(activity) {
   const m = activity.media || {};
+  if (m.format === 'MOVIE') return null; // a movie has no episodes to count
   const s = (activity.status || '').toLowerCase();
   const manga = m.type === 'MANGA';
   const total = manga ? m.chapters || null : m.episodes || null;
@@ -202,6 +203,8 @@ function buildActivityPost(o) {
       if (prog.total) parts.push(`\`${ui.bar(prog.done, prog.total, 14)}\`  **${prog.done}** / ${prog.total} · ${Math.round(prog.pct)}%${next}`);
       else if (prog.done) parts.push(`${prog.unit === 'chapter' ? 'Chapter' : 'Episode'} **${prog.done}** · still airing${next}`);
     }
+    // When they watched it: full date and "x minutes ago", in each reader's own time zone.
+    if (activity.createdAt) parts.push(`-# 🕒 <t:${activity.createdAt}:f> · <t:${activity.createdAt}:R>`);
 
     if (style !== 'minimal') {
       const info = [];
