@@ -65,6 +65,7 @@ const feed = require('./features/feed');
 const activityPost = require('./features/activityPost');
 const flood = require('./features/flood');
 const { guildConfig, peekConfig } = require('./features/guildConfig');
+const categories = require('./features/categories');
 const recaps = require('./features/recaps');
 const nudge = require('./features/nudge');
 const serverSettings = require('./features/serverSettings');
@@ -712,6 +713,8 @@ async function handleSlashCommand(interaction) {
         return await handleWhosTracking(interaction, data, guildData);
       case 'setchannel':
         return await handleSetChannel(interaction, data, guildData);
+      case 'mute':
+        return await handleMute(interaction);
       case 'mostrecommended':
         return await handleRecommendAnimes(interaction, guildData, data);
       case 'signin':
@@ -897,6 +900,54 @@ async function handleSetChannel(interaction, data, guildData) {
   guildData.channelId = channel.id;
   await saveData(data);
   await respond(interaction, { content: `✅ Simkl updates will now post in <#${channel.id}>.` });
+}
+
+/* ----- /mute: stop posts or tracking for a category ----- */
+function muteSummary(u, cfg, guildName) {
+  const list = (keys) => (keys.length ? keys.map((k) => categories.label(k)).join(', ') : '*nothing*');
+  return [
+    `**Not posted (still counted):** ${list(u.mutes.posts)}`,
+    `**Not tracked at all:** ${list(u.mutes.track)}`,
+    `**Never posted in ${ui.esc(guildName || 'this server')}:** ${list(cfg.blockedCats || [])}`,
+  ].join('\n');
+}
+
+async function handleMute(interaction) {
+  const sub = interaction.options.getSubcommand();
+  const soc = await loadSocial();
+  const u = social.getUser(soc, interaction.user.id);
+  const cfg = guildConfig(soc, interaction.guildId);
+  if (!Array.isArray(cfg.blockedCats)) cfg.blockedCats = [];
+  let title = '🔕 Muted categories';
+  if (sub !== 'list') {
+    const key = interaction.options.getString('category');
+    const where = interaction.options.getString('where');
+    if (!categories.isCategory(key)) {
+      await respond(interaction, { content: 'Pick a category from the list.', flags: EPHEMERAL });
+      return;
+    }
+    if (where === 'server' && !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+      await respond(interaction, { content: 'Only people with **Manage Server** can mute a category for the whole server.', flags: EPHEMERAL });
+      return;
+    }
+    const target = where === 'server' ? cfg.blockedCats : where === 'track' ? u.mutes.track : u.mutes.posts;
+    const has = target.includes(key);
+    if (sub === 'add' && !has) target.push(key);
+    if (sub === 'remove' && has) target.splice(target.indexOf(key), 1);
+    saveSocial();
+    const what = categories.label(key);
+    const scopeText = where === 'server' ? 'in this server' : where === 'track' ? 'from your tracking (no posts, no stats)' : 'from your posts';
+    title = sub === 'add' ? `🔕 Muted ${what} ${scopeText}` : `🔔 Unmuted ${what} ${scopeText}`;
+  }
+  await respond(interaction, {
+    ...ui.notice({
+      label: 'Muted categories',
+      title,
+      body: `${muteSummary(u, cfg, interaction.guild?.name)}\n\n-# Muting starts with the next update. A title counts as a category when Simkl lists that genre for it.`,
+      footer: 'Only you can see this',
+    }),
+    flags: ui.V2 | EPHEMERAL,
+  });
 }
 
 /* ----- /mostrecommended ----- */
@@ -1936,6 +1987,19 @@ async function pollOnce() {
     }
   }
 
+  // 2b) "Don't track" mutes: updates in a category someone muted completely are
+  //     dropped here, so they're neither posted nor counted in stats.
+  const ownerOf = new Map(Object.entries(data.linkedAccounts || {}).map(([discordId, a]) => [String(a.anilistId), discordId]));
+  for (const [anilistId, f] of feeds) {
+    const owner = ownerOf.get(String(anilistId));
+    const muted = owner && soc.users[owner] ? social.getUser(soc, owner).mutes.track : [];
+    if (!muted.length) continue;
+    const keep = (a) => !categories.mutedBy(a.media, muted);
+    f.activities = f.activities.filter(keep);
+    f.merged = f.merged.filter(keep);
+    f.synthetic = f.synthetic.filter(keep);
+  }
+
   // 3) Stats & streaks — recorded even when posting is off.
   let statsChanged = false;
   for (const [anilistId, f] of feeds) {
@@ -2003,7 +2067,9 @@ async function pollOnce() {
           const skip =
             (isText && !cfg.postText) ||
             (activity.media?.type === 'MANGA' && !cfg.postManga) ||
-            (activity.media?.isAdult && cfg.mature === 'skip');
+            (activity.media?.isAdult && cfg.mature === 'skip') ||
+            // Categories this server blocks, or the person muted for posts.
+            Boolean(categories.mutedBy(activity.media, [...(cfg.blockedCats || []), ...(look?.mutes?.posts || [])]));
           if (skip) {
             if (activity.id > (user.lastActivityId || 0)) user.lastActivityId = activity.id;
             changed = true;

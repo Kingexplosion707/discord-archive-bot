@@ -101,6 +101,9 @@ function defaults() {
     activity: { style: 'full', color: 'cover', show: [...DEFAULT_ACTIVITY_FIELDS] },
     privacy: { profile: 'public', hide: [] },
     prefs: { timezone: DEFAULT_TZ, recapDm: false, spoilerDefault: false, lastRecapSent: null },
+    // Muted categories (features/categories.js): posts = not posted, still
+    // counted; track = not posted and not counted in stats at all.
+    mutes: { posts: [], track: [] },
     favorites: [],
     watchlist: [],
     recommendations: [],

@@ -230,9 +230,17 @@ async function getRecentFeed(simklId) {
   return { activities: [], entries };
 }
 
-// Simkl has genres but not AniList-style tags; features fall back to genres.
+// Simkl has genres but not AniList-style tags, so a title's genres are used
+// as its tags (posts show them; category muting reads them). Cached lookups.
 async function getMediaTags(ids) {
-  return new Map(ids.map((id) => [Number(id), []]));
+  const out = new Map();
+  await Promise.all(
+    ids.map(async (id) => {
+      const media = await getMediaById(id).catch(() => null);
+      out.set(Number(id), (media?.genres || []).map((name) => ({ name, rank: 100, category: 'Genre', isMediaSpoiler: false })));
+    })
+  );
+  return out;
 }
 
 // Several people's entries for one title (/watched).
