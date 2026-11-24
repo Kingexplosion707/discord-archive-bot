@@ -169,6 +169,36 @@ CREATE TABLE IF NOT EXISTS movie_night_vote (
     PRIMARY KEY (message_id, user_id)
 );
 CREATE TABLE IF NOT EXISTS lyrics_user (user_id INTEGER PRIMARY KEY, enabled INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS game_catalog (
+    app_id TEXT PRIMARY KEY, name TEXT NOT NULL, name_norm TEXT NOT NULL, icon_hash TEXT, cover_hash TEXT,
+    steam_appid INTEGER, themes TEXT
+);
+CREATE INDEX IF NOT EXISTS game_catalog_name ON game_catalog (name_norm);
+CREATE INDEX IF NOT EXISTS game_catalog_steam ON game_catalog (steam_appid);
+CREATE TABLE IF NOT EXISTS game_alias (alias_norm TEXT NOT NULL, app_id TEXT NOT NULL, PRIMARY KEY (alias_norm, app_id));
+CREATE TABLE IF NOT EXISTS game_name_check (name_norm TEXT PRIMARY KEY, steam_appid INTEGER, name TEXT, checked_at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS game (
+    key TEXT PRIMARY KEY, name TEXT NOT NULL, discord_id TEXT, steam_appid INTEGER, cover TEXT, icon TEXT, themes TEXT,
+    first_seen REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS game_open (
+    user_id INTEGER PRIMARY KEY, game_key TEXT NOT NULL, started_at REAL NOT NULL, last_seen REAL NOT NULL,
+    source TEXT NOT NULL, channel_id INTEGER, message_id INTEGER
+);
+CREATE TABLE IF NOT EXISTS game_session (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, game_key TEXT NOT NULL, started_at REAL NOT NULL,
+    ended_at REAL NOT NULL, seconds REAL NOT NULL, source TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS game_session_user ON game_session (user_id, ended_at);
+CREATE INDEX IF NOT EXISTS game_session_game ON game_session (game_key, ended_at);
+CREATE TABLE IF NOT EXISTS game_optout (user_id INTEGER PRIMARY KEY, at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS steam_link (
+    user_id INTEGER PRIMARY KEY, steam_id TEXT NOT NULL, persona TEXT, avatar TEXT, linked_at REAL NOT NULL, library_at REAL
+);
+CREATE TABLE IF NOT EXISTS steam_library (
+    user_id INTEGER NOT NULL, appid INTEGER NOT NULL, name TEXT, minutes INTEGER NOT NULL, minutes_2w INTEGER NOT NULL,
+    PRIMARY KEY (user_id, appid)
+);
 """
 
 # Clears out data from the earlier face-matching version, including face profiles.

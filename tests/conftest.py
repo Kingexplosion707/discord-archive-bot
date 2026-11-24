@@ -96,6 +96,9 @@ class Harness:
             spicy_api=f"{self.fake.base}/spicy",
             lrclib_api=f"{self.fake.base}/lrclib",
             stremio_api=f"{self.fake.base}/stremio-api",
+            game_catalog=f"{self.fake.base}/games/detectable",
+            steam_api=f"{self.fake.base}/steamapi",
+            steam_store=f"{self.fake.base}/steamstore",
         )
         self.client.tracker_job_seconds = 0.2
         self.client.stremio_poll_seconds = 0.2
