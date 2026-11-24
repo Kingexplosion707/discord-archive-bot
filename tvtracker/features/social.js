@@ -14,7 +14,7 @@ const SECTIONS = {
   featured: { label: 'Featured title', emoji: '🎞️', description: 'One movie or show front and centre' },
   favorites: { label: 'Favorites shelf', emoji: '⭐', description: 'Cover gallery of your favorites' },
   rotation: { label: 'In Rotation', emoji: '🔄', description: "What you're watching, with progress" },
-  opening: { label: 'Favorite trailer', emoji: '🎬', description: 'The trailer you never skip' },
+  opening: { label: 'Favorite trailers', emoji: '🎬', description: 'Up to 3 trailers you never skip' },
   review: { label: 'Latest review', emoji: '✍️', description: 'Your newest (or featured) review' },
   recommendations: { label: 'Recommendations', emoji: '💜', description: 'What you recommend' },
   collections: { label: 'Collections', emoji: '🗂️', description: 'Your custom lists' },
@@ -92,7 +92,10 @@ function defaults() {
       tagline: null,
       bio: null,
       featured: null,
-      opening: null,
+      opening: null, // first of `openings` (kept for older code)
+      openings: [],
+      endings: [],
+      favBorder: 'anime', // favorites card border: 'anime' (each show's colour) · 'theme'
       layout: 'classic',
       sections: [...DEFAULT_SECTIONS],
       featuredReviewId: null,
@@ -239,7 +242,26 @@ function reviewFor(social, userId, mediaId) {
   return Object.values(social.reviews).find((r) => r.authorId === userId && r.mediaId === mediaId) || null;
 }
 
+// Favorite openings / endings (older profiles stored a single `opening`).
+const MAX_SONGS = 3;
+function songsOf(profile, kind) {
+  if (kind === 'ED') return Array.isArray(profile?.endings) ? profile.endings : [];
+  if (Array.isArray(profile?.openings) && profile.openings.length) return profile.openings;
+  return profile?.opening ? [profile.opening] : [];
+}
+function setSongs(profile, kind, list) {
+  const clean = list.filter(Boolean).slice(0, MAX_SONGS);
+  if (kind === 'ED') profile.endings = clean;
+  else {
+    profile.openings = clean;
+    profile.opening = clean[0] || null;
+  }
+}
+
 module.exports = {
+  songsOf,
+  setSongs,
+  MAX_SONGS,
   BADGES,
   badgesFor,
   SECTIONS,

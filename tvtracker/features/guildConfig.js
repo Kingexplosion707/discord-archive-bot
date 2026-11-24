@@ -11,7 +11,7 @@ const DEFAULTS = {
   postText: true, // Simkl status posts & messages
   postManga: true, // manga / chapter updates
   blockedCats: [], // categories never posted here (features/categories.js), e.g. ['anime']
-  mature: 'blur', // 18+ titles: 'show' · 'blur' (cover hidden) · 'skip'
+  mature: 'blur', // 18+ titles: 'show' · 'blur' (cover sent as a spoiler) · 'hide' (no cover) · 'skip'
   burst: 3, // flood protection: separate posts per person per check; the rest are bundled into one
   // Recaps
   recapChannelId: null, // null = same as the activity channel
