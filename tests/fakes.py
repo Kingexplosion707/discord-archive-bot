@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import json
+import time
 from typing import Any
 
 from aiohttp import WSMsgType, web
@@ -102,6 +103,14 @@ class FakeServices:
         self.spicy: dict[str, dict[str, Any]] = {}
         self.spicy_auth: list[str] = []
         self.lrclib: dict[str, dict[str, Any]] = {}
+        # Games: Discord's detectable list, the Steam store and Steam accounts.
+        self.detectable: list[dict[str, Any]] = []
+        self.steam_store: list[dict[str, Any]] = []
+        self.steam_store_searches: list[str] = []
+        self.steam_vanity: dict[str, str] = {}
+        self.steam_players: dict[str, dict[str, Any]] = {}
+        self.steam_games: dict[str, list[dict[str, Any]]] = {}
+        self.steam_keys: list[str] = []
         # Stremio accounts: email -> (password, authKey); library items per authKey.
         self.stremio_accounts: dict[str, tuple[str, str]] = {}
         self.stremio_library: dict[str, list[dict[str, Any]]] = {}
@@ -139,6 +148,11 @@ class FakeServices:
         r.add_post("/stremio-api/api/datastoreGet", self._stremio_library)
         r.add_post("/stremio-api/api/datastorePut", self._stremio_put)
         r.add_get("/lrclib/api/search", self._lrclib_search)
+        r.add_get("/games/detectable", self._detectable)
+        r.add_get("/steamstore/storesearch/", self._steam_search)
+        r.add_get("/steamapi/ISteamUser/ResolveVanityURL/v1/", self._steam_vanity_get)
+        r.add_get("/steamapi/ISteamUser/GetPlayerSummaries/v2/", self._steam_summaries)
+        r.add_get("/steamapi/IPlayerService/GetOwnedGames/v1/", self._steam_owned)
         r.add_get(f"{api}/users/{{user}}", self._user)
         r.add_post(f"{api}/users/@me/channels", self._dm_channel)
         r.add_post(f"{api}/interactions/{{id}}/{{token}}/callback", self._interaction_callback)
@@ -543,9 +557,17 @@ class FakeServices:
         await self.dispatch("INTERACTION_CREATE", interaction)
         return interaction["id"]
 
-    async def presence(self, user_id: int, spotify: dict[str, Any] | None) -> None:
-        """Change someone's status. `spotify` has track_id, title, artist, album, start_ms, end_ms."""
+    async def presence(
+        self, user_id: int, spotify: dict[str, Any] | None = None, playing: list[dict[str, Any]] | None = None
+    ) -> None:
+        """Change someone's status. `spotify` has track_id, title, artist, album, start_ms, end_ms.
+        `playing` is a list of "Playing …" activities: {"name", "application_id"?}."""
         activities = []
+        for game in playing or []:
+            activity = {"type": 0, "name": game["name"], "created_at": int(time.time() * 1000)}
+            if game.get("application_id"):
+                activity["application_id"] = str(game["application_id"])
+            activities.append(activity)
         if spotify:
             activities.append({
                 "type": 2, "name": "Spotify", "id": "spotify:1", "sync_id": spotify["track_id"],
@@ -755,6 +777,38 @@ class FakeServices:
     async def _lrclib_search(self, request: web.Request) -> web.Response:
         found = self.lrclib.get(request.query.get("track_name", ""))
         return _json([found] if found else [])
+
+    async def _detectable(self, request: web.Request) -> web.Response:
+        return _json(self.detectable)
+
+    async def _steam_search(self, request: web.Request) -> web.Response:
+        term = request.query.get("term", "")
+        self.steam_store_searches.append(term)
+        items = [i for i in self.steam_store if term.lower() in i["name"].lower()]
+        return _json({"total": len(items), "items": [{"type": "app", **i} for i in items]})
+
+    def _steam_auth(self, request: web.Request) -> web.Response | None:
+        key = request.query.get("key", "")
+        self.steam_keys.append(key)
+        return None if key == "STEAMKEY1234567890ABCDEF" else web.Response(status=403, text="Forbidden")
+
+    async def _steam_vanity_get(self, request: web.Request) -> web.Response:
+        if (denied := self._steam_auth(request)) is not None:
+            return denied
+        found = self.steam_vanity.get(request.query.get("vanityurl", ""))
+        return _json({"response": {"success": 1, "steamid": found} if found else {"success": 42, "message": "No match"}})
+
+    async def _steam_summaries(self, request: web.Request) -> web.Response:
+        if (denied := self._steam_auth(request)) is not None:
+            return denied
+        ids = request.query.get("steamids", "").split(",")
+        return _json({"response": {"players": [{"steamid": i, **self.steam_players[i]} for i in ids if i in self.steam_players]}})
+
+    async def _steam_owned(self, request: web.Request) -> web.Response:
+        if (denied := self._steam_auth(request)) is not None:
+            return denied
+        games = self.steam_games.get(request.query.get("steamid", ""), [])
+        return _json({"response": {"game_count": len(games), "games": games}})
 
     async def _user(self, request: web.Request) -> web.Response:
         return _json(user(int(request.match_info["user"])))

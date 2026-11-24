@@ -18,6 +18,7 @@ from .crawler import UNREADABLE_KEY, Crawler, attachment_rows
 from .drive_log import UPLOAD_BASE, DriveLog, channel_label, log_row
 from .google_login import LoginProblem, finish_login, start_login
 from .google_photos import API_BASE, GooglePhotos, TokenProvider
+from .games import DISCORD_CATALOG, STEAM_API, STEAM_STORE, GamesGroup, GameTracker
 from .lyrics import LRCLIB_API, SPICY_API, LyricsFetcher, LyricsGroup, LyricsService
 from .meta import CINEMETA, KITSU, MetaClient
 from .tracker import TitleButton, Tracker, TrackerGroup, VoteButton, WatchGroup
@@ -224,13 +225,16 @@ class ArchiveClient(discord.Client):
         spicy_api: str = SPICY_API,
         lrclib_api: str = LRCLIB_API,
         stremio_api: str = STREMIO_API,
+        game_catalog: str = DISCORD_CATALOG,
+        steam_api: str = STEAM_API,
+        steam_store: str = STEAM_STORE,
     ) -> None:
         intents = discord.Intents.none()
         intents.guilds = True
         intents.guild_messages = True
         intents.message_content = True
         intents.members = True  # Names and avatars on posts, and the members who listen.
-        intents.presences = True  # Spotify status, for live lyrics.
+        intents.presences = True  # Spotify status for live lyrics, and games being played.
         super().__init__(
             intents=intents,
             max_messages=None,
@@ -242,6 +246,8 @@ class ArchiveClient(discord.Client):
         self._lyrics_urls = (spicy_api, lrclib_api)
         self.tracker: Tracker = None  # type: ignore[assignment]
         self.lyrics: LyricsService = None  # type: ignore[assignment]
+        self._game_urls = (game_catalog, steam_api, steam_store)
+        self.games: GameTracker = None  # type: ignore[assignment]
         self.tracker_job_seconds = 60.0
         self.stremio_poll_seconds = 20.0
         self._stremio_api = stremio_api
@@ -284,6 +290,7 @@ class ArchiveClient(discord.Client):
         self.tracker = Tracker(self, self.store, MetaClient(self.web, self.store, *self._meta_urls))
         self.progress = StremioProgress(self, self.tracker, self._stremio_api)
         self.lyrics = LyricsService(self, self.store, LyricsFetcher(self.web, *self._lyrics_urls))
+        self.games = GameTracker(self, *self._game_urls)
         self.add_dynamic_items(TitleButton, VoteButton)
 
         self._web_runner = aioweb.AppRunner(build_app(self), access_log=None)
@@ -305,6 +312,7 @@ class ArchiveClient(discord.Client):
         self.tree.add_command(WatchGroup(self.tracker), guild=guild)
         self.tree.add_command(ListGroup(self.tracker), guild=guild)
         self.tree.add_command(LyricsGroup(self.lyrics), guild=guild)
+        self.tree.add_command(GamesGroup(self.games), guild=guild)
         self.tree.on_error = self._on_command_error
         await self.tree.sync(guild=guild)
         self._spawn(self._after_ready())
@@ -325,6 +333,7 @@ class ArchiveClient(discord.Client):
         self._pipeline_task = self._spawn(self.pipeline.run())
         self._spawn(self.tracker.run_jobs())
         self._spawn(self._poll_stremio())
+        self._spawn(self.games.start())
         if self.config.start_fresh and await self.store.kv_get(FRESH_START_KEY) is None:
             # Everything already in the server went to the album from the old machine.
             # Record it (and log its messages) without uploading it again.
@@ -417,6 +426,10 @@ class ArchiveClient(discord.Client):
             await self.lyrics.on_presence(after)
         except Exception:
             log.exception("Lyrics update failed")
+        try:
+            await self.games.on_presence(after)
+        except Exception:
+            log.exception("Game tracking update failed")
 
     async def on_guild_channel_pins_update(self, channel: Any, last_pin: Any) -> None:
         if channel.guild.id == self.config.guild_id:

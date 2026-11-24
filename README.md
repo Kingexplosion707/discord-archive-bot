@@ -59,6 +59,10 @@ It prints a Google link partway through. After you allow access, your browser la
 | `/watch recap` | Anyone | The week's watching (also posted automatically Sunday evening) |
 | `/lyrics setup` | Owner | Picks the music channel, and optionally adds a Spicy Lyrics key |
 | `/lyrics on` / `off` / `now` | Anyone | Opt in or out of live lyrics for your Spotify; `now` sends you the full lyrics privately |
+| `/games setup` | Manage Server | Picks the games channel; optionally live "is playing" posts |
+| `/games profile` `now` `leaderboard` `top` `game` | Anyone | Playtime, streaks, top games, who's playing now, week/month/all-time boards |
+| `/games steam` / `epic` / `privacy` | Anyone | Link Steam (lifetime hours), Epic info, turn your own tracking off |
+| `/games steamkey` | Owner | Adds the Steam Web API key (stored encrypted) |
 
 ## Watch tracker
 
@@ -71,6 +75,12 @@ The addon alone only knows when playback starts. Run `/tracker progress` and sig
 People who run `/lyrics on` get one message in the music channel that follows their Spotify: it's edited line by line as the song plays, so everyone in the channel can read along. The **Word by word** button opens a page that highlights each word in time, Spicy Lyrics style. The bot reads the song from people's Discord status (show Spotify on your profile), so nobody needs to connect a Spotify account.
 
 Lyrics come from the [Spicy Lyrics API](https://developers.spicylyrics.org) if you add a key (`sl_pk_...`) in `/lyrics setup`, with word timings. Without one, or when Spicy has nothing, it uses LRCLIB, which is free and keyless. Discord limits message edits, so the live message moves about once a second; the web page is smooth.
+
+## Game tracker
+
+The bot watches Discord's "Playing …" status and logs every session: what, when and for how long. Only real games count: the game has to be on Discord's own list of detectable games or match a Steam store game exactly, and launchers and tools that show up as "Playing" (Medal, OBS, Steam, Overwolf, Spotify, browsers…) are always ignored. Sessions of 10+ minutes get a post in the games channel; `/games setup start_posts:True` also posts when someone starts and updates it when they stop.
+
+Steam: the owner gets a free key at [steamcommunity.com/dev/apikey](https://steamcommunity.com/dev/apikey) and adds it with `/games steamkey`. People then run `/games steam profile:<link>` (profile and game details set to Public): their lifetime hours show on `/games profile`, and games they play on Steam are tracked even when Discord doesn't show them. Epic Games has no public API for playtime, so Epic games are tracked through Discord's status (keep **Share your detected activities** on).
 
 ## Run it free on Oracle Cloud (from your phone)
 
